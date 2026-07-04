@@ -20,7 +20,7 @@ def get_engine() -> Engine:
     return default_engine
 
 
-@router.post("/v1/internal/wallet/contas", response_model=CriarContaResponse)
+@router.post("/v1/wallet/contas", response_model=CriarContaResponse)
 def criar_conta_endpoint(
     payload: CriarContaRequest, response: Response, engine: Engine = Depends(get_engine)
 ) -> CriarContaResponse:
