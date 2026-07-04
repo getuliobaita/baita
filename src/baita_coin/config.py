@@ -1,0 +1,45 @@
+from typing import Optional
+
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def normalizar_database_url(url: str) -> str:
+    """Provedores gerenciados (Render, Railway etc.) fornecem DATABASE_URL
+    no formato generico `postgresql://...`, sem driver especifico. SQLAlchemy
+    tentaria usar psycopg2 (nao instalado) nesse caso -- forcamos psycopg3,
+    que e o driver que este projeto usa."""
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    database_url: str = "postgresql+psycopg://baita:baita@localhost:5433/baita_coin"
+
+    @field_validator("database_url")
+    @classmethod
+    def _normalizar_database_url(cls, valor: str) -> str:
+        return normalizar_database_url(valor)
+
+    # janela usada pelo endpoint de saldo para "saldo_a_expirar_30_dias"
+    dias_alerta_expiracao: int = 30
+
+    # validade de um lote de credito (regra confirmada na spec: 90 dias)
+    dias_validade_lote: int = 90
+
+    # Protege /v1/internal/* e /v1/admin/* com um header compartilhado.
+    # Se None/vazio (padrao local/teste), a checagem fica desligada -- NUNCA
+    # deixar isso vazio em producao, senao qualquer um na internet consegue
+    # gravar eventos no ledger ou criar campanhas/parceiros direto.
+    internal_api_key: Optional[str] = None
+
+    # Origens permitidas pro CORS (separadas por virgula). "*" libera geral --
+    # ok pra abrir a API pro Lovable agora, mas restrinja pro dominio real
+    # do app assim que ele existir.
+    cors_allow_origins: str = "*"
+
+
+settings = Settings()

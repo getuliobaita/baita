@@ -1,0 +1,276 @@
+"""Regras de negocio do wallet: idempotencia, FIFO de lotes, estorno.
+
+Cada operacao publica abre exatamente uma transacao (`engine.begin()`) --
+e a unidade atomica que garante que um debito so grava o ledger_event
+junto com o consumo de lotes correspondente, nunca um sem o outro.
+"""
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from typing import Any, Optional
+from uuid import UUID, uuid4
+
+from sqlalchemy.engine import Engine, Row
+from sqlalchemy.exc import IntegrityError
+
+from baita_coin.config import settings
+from baita_coin.wallet import repository as repo
+from baita_coin.wallet.constants import (
+    CREDITO_SIMPLES,
+    DEBITO_CONSOME_LOTES,
+    DIRECAO_FLEXIVEL,
+    STATUS_BLOQUEADA,
+    STATUS_LOTE_ATIVO,
+    TipoEvento,
+)
+from baita_coin.wallet.errors import (
+    ContaBloqueada,
+    ContaNaoEncontrada,
+    CpfJaCadastrado,
+    EventoInvalido,
+    IdempotencyKeyConflitante,
+    LoteInvalidoParaExpiracao,
+)
+from baita_coin.wallet.fifo import calcular_alocacao_fifo
+from baita_coin.wallet.schemas import (
+    CriarContaRequest,
+    CriarContaResponse,
+    EventoRequest,
+    EventoResponse,
+    SaldoResponse,
+)
+
+_CONSTRAINT_IDEMPOTENCY_KEY = "ledger_events_idempotency_key_key"
+_CONSTRAINT_CPF = "wallet_accounts_cpf_key"
+
+
+def _quantizar(valor: Decimal, campo: str) -> Decimal:
+    quantizado = valor.quantize(Decimal("0.01"))
+    if quantizado != valor:
+        raise EventoInvalido(f"{campo} deve ter no maximo 2 casas decimais")
+    return quantizado
+
+
+def _constraint_violada(exc: IntegrityError) -> Optional[str]:
+    diag = getattr(exc.orig, "diag", None)
+    return getattr(diag, "constraint_name", None) if diag else None
+
+
+def _account_row_to_response(row: Row) -> CriarContaResponse:
+    return CriarContaResponse(
+        account_id=row.account_id,
+        cpf=row.cpf,
+        status=row.status,
+        criado_em=row.criado_em,
+    )
+
+
+def criar_conta(engine: Engine, payload: CriarContaRequest) -> tuple:
+    """Retorna (response, criada_agora: bool). Idempotente por CPF: chamar
+    de novo com o mesmo CPF nao cria uma segunda conta, so devolve a existente."""
+    try:
+        with engine.begin() as conn:
+            existing = repo.get_account_by_cpf(conn, payload.cpf)
+            if existing is not None:
+                return _account_row_to_response(existing), False
+            row = repo.create_account(conn, uuid4(), payload.cpf, "ativa")
+            return _account_row_to_response(row), True
+    except IntegrityError as exc:
+        # A verificacao acima (try/except no nivel do `with`, nao dentro dele)
+        # importa: se a excecao fosse capturada dentro do bloco `with`, a
+        # transacao ja abortada pelo Postgres ficaria em estado inconsistente
+        # para o commit implicito do context manager. Deixando propagar ate
+        # aqui, o rollback automatico do `engine.begin()` roda primeiro.
+        if _constraint_violada(exc) != _CONSTRAINT_CPF:
+            raise
+
+    # Colisao concorrente: outra requisicao criou a conta entre o SELECT e o
+    # INSERT acima. Abre uma nova transacao so pra buscar o resultado.
+    with engine.begin() as conn:
+        existing = repo.get_account_by_cpf(conn, payload.cpf)
+        if existing is None:
+            raise CpfJaCadastrado("cpf ja cadastrado, mas nao foi possivel recupera-lo")
+        return _account_row_to_response(existing), False
+
+
+def _validar_payload_compativel(existing: Row, payload: EventoRequest, coins: Decimal, valor_reais: Optional[Decimal]) -> None:
+    referencia_existente = str(existing.referencia_id) if existing.referencia_id else None
+    referencia_novo = str(payload.referencia_id) if payload.referencia_id else None
+    diverge = (
+        str(existing.account_id) != str(payload.account_id)
+        or existing.tipo_evento != payload.tipo_evento.value
+        or Decimal(existing.coins) != coins
+        or (Decimal(existing.valor_reais) if existing.valor_reais is not None else None) != valor_reais
+        or referencia_existente != referencia_novo
+    )
+    if diverge:
+        raise IdempotencyKeyConflitante(
+            "idempotency_key ja foi usada com um payload diferente",
+            detalhes={"event_id_existente": str(existing.event_id)},
+        )
+
+
+def _resposta_ja_processado(conn, existing: Row) -> EventoResponse:
+    saldo = repo.get_saldo_coins(conn, existing.account_id)
+    return EventoResponse(event_id=existing.event_id, status="ja_processado", saldo_apos=saldo)
+
+
+def consumir_lotes_fifo(conn, account_id: UUID, debito_event_id: UUID, valor_a_consumir: Decimal) -> None:
+    """Publica -- reaproveitada pelo motor de resgate (Fase 4), que so
+    consome lotes na confirmacao externa do fornecedor, nunca na reserva."""
+    lotes = repo.get_lotes_ativos_para_consumo(conn, account_id)
+    alocacoes = calcular_alocacao_fifo(lotes, valor_a_consumir)
+    for aloc in alocacoes:
+        repo.registrar_consumo_lote(
+            conn,
+            uuid4(),
+            debito_event_id,
+            aloc.lote_id,
+            aloc.coins_consumidos_neste_lote,
+            aloc.novo_total_consumido,
+            aloc.novo_status,
+        )
+
+
+def criar_lote_de_credito(conn, event_id: UUID, account_id: UUID, coins: Decimal, data_credito: datetime) -> None:
+    """Publica -- reaproveitada por outros motores (ex: capitalizacao) que
+    tambem geram credito e precisam do mesmo rastreamento de lote/expiracao
+    de 90 dias, sem duplicar essa logica."""
+    data_expiracao = data_credito + timedelta(days=settings.dias_validade_lote)
+    repo.insert_lote(conn, uuid4(), event_id, account_id, coins, data_credito, data_expiracao)
+
+
+def _processar_expiracao(conn, payload: EventoRequest, coins: Decimal, account_id: UUID) -> Row:
+    if payload.referencia_id is None:
+        raise EventoInvalido("evento de expiracao exige referencia_id apontando para o lote")
+    lote = repo.get_lote_for_update(conn, payload.referencia_id)
+    if lote is None or str(lote.account_id) != str(account_id) or lote.status != STATUS_LOTE_ATIVO:
+        raise LoteInvalidoParaExpiracao(
+            "referencia_id nao aponta para um lote ativo desta conta",
+            detalhes={"lote_id": str(payload.referencia_id)},
+        )
+    remanescente = Decimal(lote.coins_originais) - Decimal(lote.coins_consumidos)
+    if remanescente != abs(coins):
+        raise LoteInvalidoParaExpiracao(
+            "coins do evento nao bate com o saldo remanescente do lote",
+            detalhes={"remanescente": str(remanescente), "coins_evento": str(coins)},
+        )
+    evento = repo.insert_ledger_event(
+        conn,
+        uuid4(),
+        account_id,
+        payload.tipo_evento.value,
+        coins,
+        None,
+        payload.referencia_id,
+        payload.idempotency_key,
+        payload.metadata,
+    )
+    repo.marcar_lote_expirado(conn, lote.lote_id)
+    return evento
+
+
+def _tentar_registrar(engine: Engine, payload: EventoRequest) -> Optional[EventoResponse]:
+    coins = _quantizar(payload.coins, "coins")
+    valor_reais = _quantizar(payload.valor_reais, "valor_reais") if payload.valor_reais is not None else None
+
+    if coins == 0:
+        raise EventoInvalido("coins nao pode ser zero")
+
+    try:
+        with engine.begin() as conn:
+            existing = repo.get_ledger_event_by_idempotency_key(conn, payload.idempotency_key)
+            if existing is not None:
+                _validar_payload_compativel(existing, payload, coins, valor_reais)
+                return _resposta_ja_processado(conn, existing)
+
+            conta = repo.get_account(conn, payload.account_id)
+            if conta is None:
+                raise ContaNaoEncontrada(
+                    "account_id nao encontrado", detalhes={"account_id": str(payload.account_id)}
+                )
+            if conta.status == STATUS_BLOQUEADA:
+                raise ContaBloqueada("conta bloqueada nao pode receber novos eventos")
+
+            tipo = payload.tipo_evento
+            event_id = uuid4()
+
+            if tipo in CREDITO_SIMPLES:
+                if coins <= 0:
+                    raise EventoInvalido(f"{tipo.value} exige coins positivo")
+                evento = repo.insert_ledger_event(
+                    conn, event_id, payload.account_id, tipo.value, coins, valor_reais,
+                    payload.referencia_id, payload.idempotency_key, payload.metadata,
+                )
+                criar_lote_de_credito(conn, event_id, payload.account_id, coins, evento.criado_em)
+
+            elif tipo in DEBITO_CONSOME_LOTES:
+                if coins >= 0:
+                    raise EventoInvalido(f"{tipo.value} exige coins negativo")
+                evento = repo.insert_ledger_event(
+                    conn, event_id, payload.account_id, tipo.value, coins, valor_reais,
+                    payload.referencia_id, payload.idempotency_key, payload.metadata,
+                )
+                consumir_lotes_fifo(conn, payload.account_id, event_id, abs(coins))
+
+            elif tipo == TipoEvento.EXPIRACAO:
+                if coins >= 0:
+                    raise EventoInvalido("expiracao exige coins negativo")
+                evento = _processar_expiracao(conn, payload, coins, payload.account_id)
+
+            elif tipo in DIRECAO_FLEXIVEL:
+                evento = repo.insert_ledger_event(
+                    conn, event_id, payload.account_id, tipo.value, coins, valor_reais,
+                    payload.referencia_id, payload.idempotency_key, payload.metadata,
+                )
+                if coins > 0:
+                    criar_lote_de_credito(conn, event_id, payload.account_id, coins, evento.criado_em)
+                else:
+                    consumir_lotes_fifo(conn, payload.account_id, event_id, abs(coins))
+
+            else:
+                raise EventoInvalido(f"tipo_evento desconhecido: {tipo}")
+
+            saldo = repo.get_saldo_coins(conn, payload.account_id)
+            return EventoResponse(event_id=evento.event_id, status="registrado", saldo_apos=saldo)
+
+    except IntegrityError as exc:
+        if _constraint_violada(exc) == _CONSTRAINT_IDEMPOTENCY_KEY:
+            return None
+        raise
+
+
+def registrar_evento(engine: Engine, payload: EventoRequest) -> EventoResponse:
+    resultado = _tentar_registrar(engine, payload)
+    if resultado is not None:
+        return resultado
+
+    # Colisao concorrente de idempotency_key: outra requisicao venceu a corrida
+    # e ja gravou o evento entre o nosso SELECT e o INSERT. So precisamos
+    # buscar o que foi gravado e devolver como "ja_processado".
+    coins = _quantizar(payload.coins, "coins")
+    valor_reais = _quantizar(payload.valor_reais, "valor_reais") if payload.valor_reais is not None else None
+    with engine.begin() as conn:
+        existing = repo.get_ledger_event_by_idempotency_key(conn, payload.idempotency_key)
+        if existing is None:
+            raise EventoInvalido("falha ao registrar evento por conflito de idempotency_key")
+        _validar_payload_compativel(existing, payload, coins, valor_reais)
+        return _resposta_ja_processado(conn, existing)
+
+
+def consultar_saldo(engine: Engine, account_id: UUID) -> SaldoResponse:
+    with engine.begin() as conn:
+        conta = repo.get_account(conn, account_id)
+        if conta is None:
+            raise ContaNaoEncontrada("account_id nao encontrado", detalhes={"account_id": str(account_id)})
+
+        agora = datetime.now(timezone.utc)
+        saldo_coins = repo.get_saldo_coins(conn, account_id)
+        limite_alerta = agora + timedelta(days=settings.dias_alerta_expiracao)
+        saldo_a_expirar = repo.get_saldo_a_expirar(conn, account_id, limite_alerta)
+
+        return SaldoResponse(
+            account_id=account_id,
+            saldo_coins=saldo_coins,
+            saldo_a_expirar_30_dias=saldo_a_expirar,
+            atualizado_em=agora,
+        )

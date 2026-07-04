@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: baita
+      POSTGRES_PASSWORD: baita
+      POSTGRES_DB: baita_coin
+    ports:
+      - "5433:5432"
+    volumes:
+      - baita_pg_data:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U baita -d baita_coin"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  baita_pg_data:
