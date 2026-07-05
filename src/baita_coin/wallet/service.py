@@ -56,23 +56,48 @@ def _constraint_violada(exc: IntegrityError) -> Optional[str]:
 
 
 def _account_row_to_response(row: Row) -> CriarContaResponse:
+    # "completo" = tem o minimo pro fluxo de compra de nao-usuario
+    cadastro_completo = all(
+        getattr(row, campo, None)
+        for campo in ("nome", "celular", "data_nascimento", "cep", "numero")
+    )
     return CriarContaResponse(
         account_id=row.account_id,
         cpf=row.cpf,
         status=row.status,
         criado_em=row.criado_em,
+        nome=getattr(row, "nome", None),
+        celular=getattr(row, "celular", None),
+        data_nascimento=getattr(row, "data_nascimento", None),
+        cep=getattr(row, "cep", None),
+        logradouro=getattr(row, "logradouro", None),
+        numero=getattr(row, "numero", None),
+        complemento=getattr(row, "complemento", None),
+        bairro=getattr(row, "bairro", None),
+        cidade=getattr(row, "cidade", None),
+        uf=getattr(row, "uf", None),
+        cadastro_completo=cadastro_completo,
     )
+
+
+def buscar_conta_por_cpf(engine: Engine, cpf: str) -> CriarContaResponse:
+    with engine.begin() as conn:
+        row = repo.get_account_by_cpf(conn, cpf)
+        if row is None:
+            raise ContaNaoEncontrada("nenhuma conta com este cpf", detalhes={"cpf": cpf})
+        return _account_row_to_response(row)
 
 
 def criar_conta(engine: Engine, payload: CriarContaRequest) -> tuple:
     """Retorna (response, criada_agora: bool). Idempotente por CPF: chamar
     de novo com o mesmo CPF nao cria uma segunda conta, so devolve a existente."""
+    dados_cadastro = payload.model_dump(exclude={"cpf"})
     try:
         with engine.begin() as conn:
             existing = repo.get_account_by_cpf(conn, payload.cpf)
             if existing is not None:
                 return _account_row_to_response(existing), False
-            row = repo.create_account(conn, uuid4(), payload.cpf, "ativa")
+            row = repo.create_account(conn, uuid4(), payload.cpf, "ativa", dados_cadastro)
             return _account_row_to_response(row), True
     except IntegrityError as exc:
         # A verificacao acima (try/except no nivel do `with`, nao dentro dele)

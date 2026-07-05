@@ -29,6 +29,13 @@ def criar_conta_endpoint(
     return conta
 
 
+@router.get("/v1/wallet/contas/cpf/{cpf}", response_model=CriarContaResponse)
+def buscar_conta_por_cpf_endpoint(cpf: str, engine: Engine = Depends(get_engine)) -> CriarContaResponse:
+    """Fluxo de compra de nao-usuario: o app consulta o CPF antes de decidir
+    se mostra o formulario de cadastro. 404 = CPF sem conta ainda."""
+    return service.buscar_conta_por_cpf(engine, cpf)
+
+
 @router.post("/v1/internal/wallet/eventos", response_model=EventoResponse)
 def registrar_evento_endpoint(
     payload: EventoRequest, response: Response, engine: Engine = Depends(get_engine)

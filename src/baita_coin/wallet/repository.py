@@ -41,16 +41,36 @@ def create_account(
     account_id: UUID,
     cpf: str,
     status: str,
+    dados_cadastro: Optional[dict] = None,
 ) -> Row:
+    dados = dados_cadastro or {}
     return conn.execute(
         text(
             """
-            INSERT INTO wallet_accounts (account_id, cpf, status)
-            VALUES (:account_id, :cpf, :status)
+            INSERT INTO wallet_accounts
+                (account_id, cpf, status, nome, celular, data_nascimento,
+                 cep, logradouro, numero, complemento, bairro, cidade, uf)
+            VALUES
+                (:account_id, :cpf, :status, :nome, :celular, :data_nascimento,
+                 :cep, :logradouro, :numero, :complemento, :bairro, :cidade, :uf)
             RETURNING *
             """
         ),
-        {"account_id": str(account_id), "cpf": cpf, "status": status},
+        {
+            "account_id": str(account_id),
+            "cpf": cpf,
+            "status": status,
+            "nome": dados.get("nome"),
+            "celular": dados.get("celular"),
+            "data_nascimento": dados.get("data_nascimento"),
+            "cep": dados.get("cep"),
+            "logradouro": dados.get("logradouro"),
+            "numero": dados.get("numero"),
+            "complemento": dados.get("complemento"),
+            "bairro": dados.get("bairro"),
+            "cidade": dados.get("cidade"),
+            "uf": dados.get("uf"),
+        },
     ).first()
 
 

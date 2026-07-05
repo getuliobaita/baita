@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, Optional
 from uuid import UUID
@@ -10,6 +10,16 @@ from baita_coin.wallet.constants import TipoEvento
 
 class CriarContaRequest(BaseModel):
     cpf: str
+    nome: Optional[str] = Field(default=None, max_length=150)
+    celular: Optional[str] = None
+    data_nascimento: Optional[date] = None
+    cep: Optional[str] = None
+    logradouro: Optional[str] = Field(default=None, max_length=200)
+    numero: Optional[str] = Field(default=None, max_length=20)
+    complemento: Optional[str] = Field(default=None, max_length=100)
+    bairro: Optional[str] = Field(default=None, max_length=100)
+    cidade: Optional[str] = Field(default=None, max_length=100)
+    uf: Optional[str] = Field(default=None, min_length=2, max_length=2)
 
     @field_validator("cpf")
     @classmethod
@@ -18,12 +28,54 @@ class CriarContaRequest(BaseModel):
             raise ValueError("cpf deve conter exatamente 11 digitos numericos")
         return valor
 
+    @field_validator("celular")
+    @classmethod
+    def celular_deve_ser_valido(cls, valor: Optional[str]) -> Optional[str]:
+        if valor is None:
+            return valor
+        digitos = "".join(c for c in valor if c.isdigit())
+        if len(digitos) not in (10, 11):
+            raise ValueError("celular deve conter 10 ou 11 digitos (DDD + numero)")
+        return digitos
 
-class CriarContaResponse(BaseModel):
+    @field_validator("cep")
+    @classmethod
+    def cep_deve_ser_valido(cls, valor: Optional[str]) -> Optional[str]:
+        if valor is None:
+            return valor
+        digitos = "".join(c for c in valor if c.isdigit())
+        if len(digitos) != 8:
+            raise ValueError("cep deve conter exatamente 8 digitos")
+        return digitos
+
+    @field_validator("data_nascimento")
+    @classmethod
+    def nascimento_no_passado(cls, valor: Optional[date]) -> Optional[date]:
+        if valor is not None and valor >= date.today():
+            raise ValueError("data_nascimento deve ser uma data no passado")
+        return valor
+
+
+class ContaResponse(BaseModel):
     account_id: UUID
     cpf: str
     status: str
     criado_em: datetime
+    nome: Optional[str] = None
+    celular: Optional[str] = None
+    data_nascimento: Optional[date] = None
+    cep: Optional[str] = None
+    logradouro: Optional[str] = None
+    numero: Optional[str] = None
+    complemento: Optional[str] = None
+    bairro: Optional[str] = None
+    cidade: Optional[str] = None
+    uf: Optional[str] = None
+    cadastro_completo: bool = False
+
+
+# alias mantido pra compatibilidade com codigo existente
+CriarContaResponse = ContaResponse
 
 
 class EventoRequest(BaseModel):
