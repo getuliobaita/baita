@@ -31,6 +31,8 @@ _TABELAS_EM_ORDEM_DE_LIMPEZA = [
     "nf_submissoes",
     "resgates",
     "catalogo_itens",
+    "beneficios_usos",
+    "beneficios",
     "lotes_creditos",
     "ledger_events",
     "campanhas_multiplicador",
@@ -117,6 +119,7 @@ def criar_conta_ativa(test_engine):
 def client(test_engine):
     from fastapi.testclient import TestClient
 
+    from baita_coin.beneficios.routes import get_engine as get_beneficios_engine
     from baita_coin.capitalizacao.routes import get_engine as get_capitalizacao_engine
     from baita_coin.main import create_app
     from baita_coin.notas_fiscais.routes import get_engine as get_notas_fiscais_engine
@@ -128,5 +131,6 @@ def client(test_engine):
     app.dependency_overrides[get_capitalizacao_engine] = lambda: test_engine
     app.dependency_overrides[get_notas_fiscais_engine] = lambda: test_engine
     app.dependency_overrides[get_resgates_engine] = lambda: test_engine
+    app.dependency_overrides[get_beneficios_engine] = lambda: test_engine
     with TestClient(app) as test_client:
         yield test_client

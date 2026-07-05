@@ -6,6 +6,7 @@ class TipoEvento(str, Enum):
     CREDITO_NF_PARCEIRO = "credito_nf_parceiro"
     CREDITO_CAMPANHA = "credito_campanha"
     DEBITO_RESGATE = "debito_resgate"
+    DEBITO_BENEFICIO = "debito_beneficio"
     ESTORNO = "estorno"
     EXPIRACAO = "expiracao"
     AJUSTE_MANUAL = "ajuste_manual"
@@ -23,7 +24,7 @@ CREDITO_SIMPLES = frozenset(
 
 # Debito que consome lotes ativos em ordem FIFO (mais antigo primeiro),
 # registrando o rastro em consumo_lotes.
-DEBITO_CONSOME_LOTES = frozenset({TipoEvento.DEBITO_RESGATE})
+DEBITO_CONSOME_LOTES = frozenset({TipoEvento.DEBITO_RESGATE, TipoEvento.DEBITO_BENEFICIO})
 
 # estorno e ajuste_manual podem ir em qualquer direcao -- o sinal de
 # "coins" no request e que decide se o evento se comporta como credito
