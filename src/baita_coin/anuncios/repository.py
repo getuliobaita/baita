@@ -7,6 +7,32 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection, Row
 
 
+def insert_imagem(
+    conn: Connection, imagem_id: UUID, content_type: str, dados: bytes
+) -> Row:
+    return conn.execute(
+        text(
+            """
+            INSERT INTO anuncios_imagens (imagem_id, content_type, dados, tamanho_bytes)
+            VALUES (:imagem_id, :content_type, :dados, :tamanho_bytes)
+            RETURNING imagem_id, content_type, tamanho_bytes, criado_em
+            """
+        ),
+        {
+            "imagem_id": str(imagem_id),
+            "content_type": content_type,
+            "dados": dados,
+            "tamanho_bytes": len(dados),
+        },
+    ).first()
+
+
+def get_imagem(conn: Connection, imagem_id: UUID) -> Optional[Row]:
+    return conn.execute(
+        text("SELECT * FROM anuncios_imagens WHERE imagem_id = :id"), {"id": str(imagem_id)}
+    ).first()
+
+
 def insert_anuncio(
     conn: Connection,
     anuncio_id: UUID,

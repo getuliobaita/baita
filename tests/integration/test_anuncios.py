@@ -78,3 +78,63 @@ def test_atualizar_anuncio_inexistente_retorna_404(client):
     resp = client.patch(f"/v1/admin/anuncios/{uuid.uuid4()}", json={"status": "inativo"})
     assert resp.status_code == 404
     assert resp.json()["erro"]["codigo"] == "ANUNCIO_NAO_ENCONTRADO"
+
+
+# PNG 1x1 valido (menor PNG possivel) -- bytes reais, nao só content-type
+_PNG_1X1 = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+    "0000000d49444154789c626001000000ffff03000006000557bfabd40000000049454e44ae426082"
+)
+
+
+def test_upload_de_imagem_e_servida_de_volta(client):
+    upload = client.post(
+        "/v1/admin/anuncios/imagens",
+        files={"arquivo": ("banner.png", _PNG_1X1, "image/png")},
+    )
+    assert upload.status_code == 201
+    body = upload.json()
+    assert body["imagem_url"].endswith(f"/v1/anuncios/imagens/{body['imagem_id']}")
+
+    servida = client.get(f"/v1/anuncios/imagens/{body['imagem_id']}")
+    assert servida.status_code == 200
+    assert servida.headers["content-type"] == "image/png"
+    assert servida.content == _PNG_1X1
+    assert "immutable" in servida.headers["cache-control"]
+
+
+def test_upload_de_imagem_alimenta_anuncio_completo(client):
+    upload = client.post(
+        "/v1/admin/anuncios/imagens",
+        files={"arquivo": ("banner.png", _PNG_1X1, "image/png")},
+    ).json()
+
+    anuncio = _criar_anuncio(client, titulo="Banner com upload", imagem_url=upload["imagem_url"])
+    listado = client.get("/v1/anuncios", params={"slot": "banner_home"}).json()
+    assert any(a["imagem_url"] == upload["imagem_url"] for a in listado)
+
+
+def test_upload_de_tipo_nao_suportado_e_rejeitado(client):
+    resp = client.post(
+        "/v1/admin/anuncios/imagens",
+        files={"arquivo": ("script.txt", b"nao sou imagem", "text/plain")},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["erro"]["codigo"] == "IMAGEM_INVALIDA"
+
+
+def test_upload_acima_de_5mb_e_rejeitado(client):
+    grande = _PNG_1X1 + b"\x00" * (5 * 1024 * 1024 + 1)
+    resp = client.post(
+        "/v1/admin/anuncios/imagens",
+        files={"arquivo": ("gigante.png", grande, "image/png")},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["erro"]["codigo"] == "IMAGEM_INVALIDA"
+
+
+def test_imagem_inexistente_retorna_404(client):
+    import uuid
+
+    resp = client.get(f"/v1/anuncios/imagens/{uuid.uuid4()}")
+    assert resp.status_code == 404

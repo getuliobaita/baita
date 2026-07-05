@@ -34,6 +34,7 @@ _TABELAS_EM_ORDEM_DE_LIMPEZA = [
     "beneficios_usos",
     "beneficios",
     "anuncios",
+    "anuncios_imagens",
     "lotes_creditos",
     "ledger_events",
     "campanhas_multiplicador",

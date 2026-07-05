@@ -41,5 +41,10 @@ class Settings(BaseSettings):
     # do app assim que ele existir.
     cors_allow_origins: str = "*"
 
+    # Base publica usada pra montar URLs absolutas de recursos servidos por
+    # esta API (ex: imagens de anuncio) -- nao da pra confiar no request.base_url
+    # atras do proxy do Render sem configurar forwarded headers.
+    public_base_url: str = "https://baita-coin-api.onrender.com"
+
 
 settings = Settings()
