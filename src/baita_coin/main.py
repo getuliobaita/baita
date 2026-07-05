@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from baita_coin.admin_usuarios.routes import router as admin_usuarios_router
 from baita_coin.anuncios.routes import router as anuncios_router
 from baita_coin.beneficios.routes import router as beneficios_router
 from baita_coin.capitalizacao.routes import router as capitalizacao_router
@@ -64,6 +65,7 @@ def create_app() -> FastAPI:
     app.include_router(resgates_router)
     app.include_router(beneficios_router)
     app.include_router(anuncios_router)
+    app.include_router(admin_usuarios_router)
 
     @app.get("/health")
     def health() -> dict:
