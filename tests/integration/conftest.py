@@ -93,6 +93,14 @@ def _resetar_mock_provider_adapter():
     provider_adapter_padrao.reset()
 
 
+@pytest.fixture(autouse=True)
+def _resetar_mock_whatsapp():
+    from baita_coin.wallet.routes import whatsapp_adapter_padrao
+
+    yield
+    whatsapp_adapter_padrao.reset()
+
+
 @pytest.fixture
 def criar_conta_ativa(test_engine):
     """Helper: insere uma wallet_account 'ativa' direto via SQL e devolve o account_id."""

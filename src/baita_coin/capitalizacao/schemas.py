@@ -15,9 +15,45 @@ class CriarCompraRequest(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=100)
 
 
+class DadosPagamento(BaseModel):
+    gateway: str
+    pix_copia_cola: Optional[str] = None
+    checkout_url: Optional[str] = None
+
+
 class CriarCompraResponse(BaseModel):
     compra_id: UUID
     status: str
+    valor_reais: Optional[Decimal] = None
+    pagamento: Optional[DadosPagamento] = None
+
+
+class PlanoResponse(BaseModel):
+    plano_id: UUID
+    nome: str
+    quantidade_pacotes: int
+    valor_reais: Decimal
+    descricao: Optional[str]
+    destaque: bool
+    ordem: int
+    status: str
+
+
+class CriarPlanoRequest(BaseModel):
+    nome: str
+    quantidade_pacotes: int = Field(ge=MIN_PACOTES, le=MAX_PACOTES)
+    descricao: Optional[str] = None
+    destaque: bool = False
+    ordem: int = 0
+
+
+class AtualizarPlanoRequest(BaseModel):
+    nome: Optional[str] = None
+    quantidade_pacotes: Optional[int] = Field(default=None, ge=MIN_PACOTES, le=MAX_PACOTES)
+    descricao: Optional[str] = None
+    destaque: Optional[bool] = None
+    ordem: Optional[int] = None
+    status: Optional[str] = None
 
 
 class RegraAplicada(BaseModel):

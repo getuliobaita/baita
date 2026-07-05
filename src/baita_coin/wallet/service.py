@@ -22,10 +22,13 @@ from baita_coin.wallet.constants import (
     STATUS_LOTE_ATIVO,
     TipoEvento,
 )
+from baita_coin.notificacoes.whatsapp import MensagemWhatsApp, WhatsAppAdapter
 from baita_coin.wallet.errors import (
     ContaBloqueada,
     ContaNaoEncontrada,
+    ContaSemCelular,
     CpfJaCadastrado,
+    CredenciaisInvalidas,
     EventoInvalido,
     IdempotencyKeyConflitante,
     LoteInvalidoParaExpiracao,
@@ -36,11 +39,16 @@ from baita_coin.wallet.schemas import (
     CriarContaResponse,
     EventoRequest,
     EventoResponse,
+    LoginRequest,
+    ReenviarSenhaRequest,
+    ReenviarSenhaResponse,
     SaldoResponse,
 )
+from baita_coin.wallet.senha import gerar_senha_temporaria, hash_senha, verificar_senha
 
 _CONSTRAINT_IDEMPOTENCY_KEY = "ledger_events_idempotency_key_key"
 _CONSTRAINT_CPF = "wallet_accounts_cpf_key"
+_CONSTRAINT_EMAIL = "wallet_accounts_email_key"
 
 
 def _quantizar(valor: Decimal, campo: str) -> Decimal:
@@ -55,7 +63,7 @@ def _constraint_violada(exc: IntegrityError) -> Optional[str]:
     return getattr(diag, "constraint_name", None) if diag else None
 
 
-def _account_row_to_response(row: Row) -> CriarContaResponse:
+def _account_row_to_response(row: Row, senha_enviada_whatsapp: bool = False) -> CriarContaResponse:
     # "completo" = tem o minimo pro fluxo de compra de nao-usuario
     cadastro_completo = all(
         getattr(row, campo, None)
@@ -67,6 +75,9 @@ def _account_row_to_response(row: Row) -> CriarContaResponse:
         status=row.status,
         criado_em=row.criado_em,
         nome=getattr(row, "nome", None),
+        email=getattr(row, "email", None),
+        senha_enviada_whatsapp=senha_enviada_whatsapp,
+        tem_senha=bool(getattr(row, "senha_hash", None)),
         celular=getattr(row, "celular", None),
         data_nascimento=getattr(row, "data_nascimento", None),
         cep=getattr(row, "cep", None),
@@ -88,24 +99,59 @@ def buscar_conta_por_cpf(engine: Engine, cpf: str) -> CriarContaResponse:
         return _account_row_to_response(row)
 
 
-def criar_conta(engine: Engine, payload: CriarContaRequest) -> tuple:
+def _mensagem_senha(nome: Optional[str], senha: str) -> str:
+    primeiro_nome = (nome or "").split(" ")[0]
+    saudacao = f"Oi, {primeiro_nome}! " if primeiro_nome else "Oi! "
+    return (
+        saudacao
+        + f"Tua senha de acesso ao clube e: {senha}\n"
+        + "Usa ela com teu CPF pra entrar. Depois tu pode trocar no teu perfil."
+    )
+
+
+def criar_conta(
+    engine: Engine, payload: CriarContaRequest, whatsapp: Optional[WhatsAppAdapter] = None
+) -> tuple:
     """Retorna (response, criada_agora: bool). Idempotente por CPF: chamar
-    de novo com o mesmo CPF nao cria uma segunda conta, so devolve a existente."""
-    dados_cadastro = payload.model_dump(exclude={"cpf"})
+    de novo com o mesmo CPF nao cria uma segunda conta, so devolve a existente.
+
+    Senha: se o cadastro define uma, ela e usada. Se nao define mas tem
+    celular, geramos uma temporaria e enviamos por WhatsApp (adapter mockado
+    ate fechar a API oficial)."""
+    dados_cadastro = payload.model_dump(exclude={"cpf", "senha"})
+    senha_temporaria: Optional[str] = None
+    if payload.senha:
+        dados_cadastro["senha_hash"] = hash_senha(payload.senha)
+    elif payload.celular:
+        senha_temporaria = gerar_senha_temporaria()
+        dados_cadastro["senha_hash"] = hash_senha(senha_temporaria)
+
     try:
         with engine.begin() as conn:
             existing = repo.get_account_by_cpf(conn, payload.cpf)
             if existing is not None:
                 return _account_row_to_response(existing), False
             row = repo.create_account(conn, uuid4(), payload.cpf, "ativa", dados_cadastro)
-            return _account_row_to_response(row), True
+
+        # Envio fora da transacao: se o WhatsApp falhar, a conta ja existe e
+        # o cliente recupera a senha pelo "esqueci a senha".
+        enviada = False
+        if senha_temporaria and whatsapp is not None:
+            whatsapp.enviar(
+                MensagemWhatsApp(celular=dados_cadastro["celular"], texto=_mensagem_senha(payload.nome, senha_temporaria))
+            )
+            enviada = True
+        return _account_row_to_response(row, senha_enviada_whatsapp=enviada), True
     except IntegrityError as exc:
         # A verificacao acima (try/except no nivel do `with`, nao dentro dele)
         # importa: se a excecao fosse capturada dentro do bloco `with`, a
         # transacao ja abortada pelo Postgres ficaria em estado inconsistente
         # para o commit implicito do context manager. Deixando propagar ate
         # aqui, o rollback automatico do `engine.begin()` roda primeiro.
-        if _constraint_violada(exc) != _CONSTRAINT_CPF:
+        constraint = _constraint_violada(exc)
+        if constraint == _CONSTRAINT_EMAIL:
+            raise EventoInvalido("este e-mail ja esta em uso em outra conta") from exc
+        if constraint != _CONSTRAINT_CPF:
             raise
 
     # Colisao concorrente: outra requisicao criou a conta entre o SELECT e o
@@ -115,6 +161,53 @@ def criar_conta(engine: Engine, payload: CriarContaRequest) -> tuple:
         if existing is None:
             raise CpfJaCadastrado("cpf ja cadastrado, mas nao foi possivel recupera-lo")
         return _account_row_to_response(existing), False
+
+
+def login(engine: Engine, payload: LoginRequest) -> CriarContaResponse:
+    """Login por CPF (11 digitos) ou e-mail + senha. Mesma mensagem generica
+    pra qualquer falha, sem revelar se o identificador existe."""
+    with engine.begin() as conn:
+        identificador = payload.identificador.strip()
+        if identificador.isdigit() and len(identificador) == 11:
+            row = repo.get_account_by_cpf(conn, identificador)
+        else:
+            row = repo.get_account_by_email(conn, identificador.lower())
+        if row is None or not row.senha_hash or not verificar_senha(payload.senha, row.senha_hash):
+            raise CredenciaisInvalidas("CPF/e-mail ou senha incorretos.")
+        if row.status == STATUS_BLOQUEADA:
+            raise ContaBloqueada("conta bloqueada")
+        return _account_row_to_response(row)
+
+
+def _mascarar_celular(celular: str) -> str:
+    # (51) *****-8888 -> mostra DDD e ultimos 4
+    return f"({celular[:2]}) *****-{celular[-4:]}"
+
+
+def reenviar_senha(
+    engine: Engine, payload: ReenviarSenhaRequest, whatsapp: WhatsAppAdapter
+) -> ReenviarSenhaResponse:
+    """'Esqueci a senha': gera uma senha temporaria nova e envia pro celular
+    cadastrado via WhatsApp. Resposta nao confirma se o CPF existe (mesmo
+    formato pra existente/inexistente), pra nao virar oraculo de CPFs."""
+    with engine.begin() as conn:
+        row = repo.get_account_by_cpf(conn, payload.cpf)
+        if row is None:
+            # resposta identica a de sucesso, sem enviar nada
+            return ReenviarSenhaResponse(senha_enviada_whatsapp=True, celular_mascarado=None)
+        if not row.celular:
+            raise ContaSemCelular(
+                "esta conta nao tem celular cadastrado -- fale com o atendimento"
+            )
+        senha_nova = gerar_senha_temporaria()
+        repo.set_senha_hash(conn, row.account_id, hash_senha(senha_nova))
+        celular = row.celular
+        nome = row.nome
+
+    whatsapp.enviar(MensagemWhatsApp(celular=celular, texto=_mensagem_senha(nome, senha_nova)))
+    return ReenviarSenhaResponse(
+        senha_enviada_whatsapp=True, celular_mascarado=_mascarar_celular(celular)
+    )
 
 
 def _validar_payload_compativel(existing: Row, payload: EventoRequest, coins: Decimal, valor_reais: Optional[Decimal]) -> None:

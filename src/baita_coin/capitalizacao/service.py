@@ -27,6 +27,7 @@ from baita_coin.capitalizacao.errors import (
     CompraEmEstadoInvalido,
     CompraNaoEncontrada,
     NenhumSorteioAberto,
+    PlanoNaoEncontrado,
     RegraCapitalizacaoNaoEncontrada,
     ValorConfirmadoDivergente,
 )
@@ -35,6 +36,7 @@ from baita_coin.capitalizacao.motor_conversao import Campanha, calcular_coins_ca
 from baita_coin.capitalizacao.schemas import (
     AbrirSorteioRequest,
     AtualizarCampanhaRequest,
+    AtualizarPlanoRequest,
     CampanhaAplicada,
     CampanhaAtivaResponse,
     CampanhaResponse,
@@ -43,7 +45,10 @@ from baita_coin.capitalizacao.schemas import (
     CriarCampanhaRequest,
     CriarCompraRequest,
     CriarCompraResponse,
+    CriarPlanoRequest,
+    DadosPagamento,
     NumerosSorteResumo,
+    PlanoResponse,
     RegraAplicada,
     RelatorioCompradoresResponse,
     SorteioResponse,
@@ -213,7 +218,65 @@ def criar_compra(
             conn, compra_id, resultado_cobranca.gateway, resultado_cobranca.gateway_transaction_id
         )
 
-    return CriarCompraResponse(compra_id=compra_id, status=STATUS_COMPRA_AGUARDANDO)
+    return CriarCompraResponse(
+        compra_id=compra_id,
+        status=STATUS_COMPRA_AGUARDANDO,
+        valor_reais=valor_reais,
+        pagamento=DadosPagamento(
+            gateway=resultado_cobranca.gateway,
+            pix_copia_cola=resultado_cobranca.pix_copia_cola,
+            checkout_url=resultado_cobranca.checkout_url,
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Planos de compra (vitrine da tela de planos)
+# ---------------------------------------------------------------------------
+
+
+def _plano_para_response(row: Row) -> PlanoResponse:
+    return PlanoResponse(
+        plano_id=row.plano_id,
+        nome=row.nome,
+        quantidade_pacotes=row.quantidade_pacotes,
+        valor_reais=_quantizar(VALOR_PACOTE_REAIS * row.quantidade_pacotes),
+        descricao=row.descricao,
+        destaque=row.destaque,
+        ordem=row.ordem,
+        status=row.status,
+    )
+
+
+def listar_planos(engine: Engine) -> List[PlanoResponse]:
+    with engine.begin() as conn:
+        return [_plano_para_response(r) for r in repo.list_planos_ativos(conn)]
+
+
+def listar_planos_admin(engine: Engine) -> List[PlanoResponse]:
+    with engine.begin() as conn:
+        return [_plano_para_response(r) for r in repo.list_planos_admin(conn)]
+
+
+def criar_plano(engine: Engine, payload: CriarPlanoRequest) -> PlanoResponse:
+    with engine.begin() as conn:
+        row = repo.insert_plano(
+            conn, uuid4(), payload.nome, payload.quantidade_pacotes, payload.descricao,
+            payload.destaque, payload.ordem,
+        )
+        return _plano_para_response(row)
+
+
+def atualizar_plano(engine: Engine, plano_id: UUID, payload: AtualizarPlanoRequest) -> PlanoResponse:
+    with engine.begin() as conn:
+        existente = repo.get_plano(conn, plano_id)
+        if existente is None:
+            raise PlanoNaoEncontrado("plano_id nao encontrado", detalhes={"plano_id": str(plano_id)})
+        row = repo.atualizar_plano(
+            conn, plano_id, payload.nome, payload.quantidade_pacotes, payload.descricao,
+            payload.destaque, payload.ordem, payload.status,
+        )
+        return _plano_para_response(row)
 
 
 def _montar_detalhe(conn, compra: Row) -> CompraDetalheResponse:

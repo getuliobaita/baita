@@ -4,29 +4,57 @@ from fastapi import APIRouter, Depends, Response
 from sqlalchemy.engine import Engine
 
 from baita_coin.db import engine as default_engine
+from baita_coin.notificacoes.whatsapp import MockWhatsAppAdapter, WhatsAppAdapter
 from baita_coin.wallet import service
 from baita_coin.wallet.schemas import (
     CriarContaRequest,
     CriarContaResponse,
     EventoRequest,
     EventoResponse,
+    LoginRequest,
+    ReenviarSenhaRequest,
+    ReenviarSenhaResponse,
     SaldoResponse,
 )
 
 router = APIRouter()
+
+# Singleton de modulo -- testes acessam pra inspecionar mensagens "enviadas".
+whatsapp_adapter_padrao = MockWhatsAppAdapter()
 
 
 def get_engine() -> Engine:
     return default_engine
 
 
+def get_whatsapp_adapter() -> WhatsAppAdapter:
+    return whatsapp_adapter_padrao
+
+
 @router.post("/v1/wallet/contas", response_model=CriarContaResponse)
 def criar_conta_endpoint(
-    payload: CriarContaRequest, response: Response, engine: Engine = Depends(get_engine)
+    payload: CriarContaRequest,
+    response: Response,
+    engine: Engine = Depends(get_engine),
+    whatsapp: WhatsAppAdapter = Depends(get_whatsapp_adapter),
 ) -> CriarContaResponse:
-    conta, criada_agora = service.criar_conta(engine, payload)
+    conta, criada_agora = service.criar_conta(engine, payload, whatsapp)
     response.status_code = 201 if criada_agora else 200
     return conta
+
+
+@router.post("/v1/wallet/login", response_model=CriarContaResponse)
+def login_endpoint(payload: LoginRequest, engine: Engine = Depends(get_engine)) -> CriarContaResponse:
+    return service.login(engine, payload)
+
+
+@router.post("/v1/wallet/senha/reenviar", response_model=ReenviarSenhaResponse)
+def reenviar_senha_endpoint(
+    payload: ReenviarSenhaRequest,
+    engine: Engine = Depends(get_engine),
+    whatsapp: WhatsAppAdapter = Depends(get_whatsapp_adapter),
+) -> ReenviarSenhaResponse:
+    return service.reenviar_senha(engine, payload, whatsapp)
 
 
 @router.get("/v1/wallet/contas/cpf/{cpf}", response_model=CriarContaResponse)

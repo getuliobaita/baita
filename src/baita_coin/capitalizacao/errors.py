@@ -32,3 +32,8 @@ class RegraCapitalizacaoNaoEncontrada(DomainError):
 class CampanhaNaoEncontrada(DomainError):
     codigo = "CAMPANHA_NAO_ENCONTRADA"
     status_code = 404
+
+
+class PlanoNaoEncontrado(DomainError):
+    codigo = "PLANO_NAO_ENCONTRADO"
+    status_code = 404

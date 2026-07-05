@@ -62,3 +62,16 @@ class SaldoInsuficiente(DomainError):
 class LoteInvalidoParaExpiracao(DomainError):
     codigo = "LOTE_INVALIDO_PARA_EXPIRACAO"
     status_code = 400
+
+
+class CredenciaisInvalidas(DomainError):
+    """Login com cpf/email inexistente, sem senha definida ou senha errada --
+    mesma mensagem generica em todos os casos, pra nao vazar qual campo errou."""
+
+    codigo = "CREDENCIAIS_INVALIDAS"
+    status_code = 401
+
+
+class ContaSemCelular(DomainError):
+    codigo = "CONTA_SEM_CELULAR"
+    status_code = 422

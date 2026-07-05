@@ -8,6 +8,86 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection, Row
 
 
+def list_planos_ativos(conn: Connection) -> List[Row]:
+    return conn.execute(
+        text("SELECT * FROM planos WHERE status = 'ativo' ORDER BY ordem ASC, criado_em ASC")
+    ).all()
+
+
+def list_planos_admin(conn: Connection) -> List[Row]:
+    return conn.execute(text("SELECT * FROM planos ORDER BY ordem ASC, criado_em ASC")).all()
+
+
+def get_plano(conn: Connection, plano_id: UUID) -> Optional[Row]:
+    return conn.execute(
+        text("SELECT * FROM planos WHERE plano_id = :id"), {"id": str(plano_id)}
+    ).first()
+
+
+def insert_plano(
+    conn: Connection,
+    plano_id: UUID,
+    nome: str,
+    quantidade_pacotes: int,
+    descricao: Optional[str],
+    destaque: bool,
+    ordem: int,
+) -> Row:
+    return conn.execute(
+        text(
+            """
+            INSERT INTO planos (plano_id, nome, quantidade_pacotes, descricao, destaque, ordem)
+            VALUES (:plano_id, :nome, :quantidade_pacotes, :descricao, :destaque, :ordem)
+            RETURNING *
+            """
+        ),
+        {
+            "plano_id": str(plano_id),
+            "nome": nome,
+            "quantidade_pacotes": quantidade_pacotes,
+            "descricao": descricao,
+            "destaque": destaque,
+            "ordem": ordem,
+        },
+    ).first()
+
+
+def atualizar_plano(
+    conn: Connection,
+    plano_id: UUID,
+    nome: Optional[str],
+    quantidade_pacotes: Optional[int],
+    descricao: Optional[str],
+    destaque: Optional[bool],
+    ordem: Optional[int],
+    status: Optional[str],
+) -> Row:
+    return conn.execute(
+        text(
+            """
+            UPDATE planos
+            SET nome = COALESCE(:nome, nome),
+                quantidade_pacotes = COALESCE(:quantidade_pacotes, quantidade_pacotes),
+                descricao = COALESCE(:descricao, descricao),
+                destaque = COALESCE(:destaque, destaque),
+                ordem = COALESCE(:ordem, ordem),
+                status = COALESCE(:status, status)
+            WHERE plano_id = :plano_id
+            RETURNING *
+            """
+        ),
+        {
+            "plano_id": str(plano_id),
+            "nome": nome,
+            "quantidade_pacotes": quantidade_pacotes,
+            "descricao": descricao,
+            "destaque": destaque,
+            "ordem": ordem,
+            "status": status,
+        },
+    ).first()
+
+
 def get_relatorio_compradores(conn: Connection) -> Row:
     """'Recorrente' = ja fez 2+ compras confirmadas, sem janela de tempo
     fixa (metrica simples de recompra historica, confirmada com o usuario)."""

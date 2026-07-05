@@ -11,6 +11,11 @@ from baita_coin.wallet.constants import TipoEvento
 class CriarContaRequest(BaseModel):
     cpf: str
     nome: Optional[str] = Field(default=None, max_length=150)
+    email: Optional[str] = Field(default=None, max_length=150)
+    # Se ausente e houver celular, uma senha temporaria e gerada e enviada
+    # por WhatsApp (formato do site atual: cadastro define a senha; compra
+    # rapida sem senha recebe a temporaria no zap).
+    senha: Optional[str] = Field(default=None, min_length=6, max_length=100)
     celular: Optional[str] = None
     data_nascimento: Optional[date] = None
     cep: Optional[str] = None
@@ -26,6 +31,16 @@ class CriarContaRequest(BaseModel):
     def cpf_deve_ter_11_digitos(cls, valor: str) -> str:
         if not valor.isdigit() or len(valor) != 11:
             raise ValueError("cpf deve conter exatamente 11 digitos numericos")
+        return valor
+
+    @field_validator("email")
+    @classmethod
+    def email_normalizado(cls, valor: Optional[str]) -> Optional[str]:
+        if valor is None:
+            return valor
+        valor = valor.strip().lower()
+        if "@" not in valor or "." not in valor.split("@")[-1]:
+            raise ValueError("email invalido")
         return valor
 
     @field_validator("celular")
@@ -62,7 +77,12 @@ class ContaResponse(BaseModel):
     status: str
     criado_em: datetime
     nome: Optional[str] = None
+    email: Optional[str] = None
     celular: Optional[str] = None
+    # true quando uma senha temporaria acabou de ser gerada e enviada por
+    # WhatsApp (o app usa isso pra mostrar "te mandamos a senha no zap")
+    senha_enviada_whatsapp: bool = False
+    tem_senha: bool = False
     data_nascimento: Optional[date] = None
     cep: Optional[str] = None
     logradouro: Optional[str] = None
@@ -76,6 +96,27 @@ class ContaResponse(BaseModel):
 
 # alias mantido pra compatibilidade com codigo existente
 CriarContaResponse = ContaResponse
+
+
+class LoginRequest(BaseModel):
+    identificador: str  # cpf (11 digitos) ou email
+    senha: str
+
+
+class ReenviarSenhaRequest(BaseModel):
+    cpf: str
+
+    @field_validator("cpf")
+    @classmethod
+    def cpf_deve_ter_11_digitos(cls, valor: str) -> str:
+        if not valor.isdigit() or len(valor) != 11:
+            raise ValueError("cpf deve conter exatamente 11 digitos numericos")
+        return valor
+
+
+class ReenviarSenhaResponse(BaseModel):
+    senha_enviada_whatsapp: bool
+    celular_mascarado: Optional[str] = None
 
 
 class EventoRequest(BaseModel):

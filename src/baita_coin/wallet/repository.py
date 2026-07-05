@@ -29,6 +29,19 @@ def get_account_for_update(conn: Connection, account_id: UUID) -> Optional[Row]:
     ).first()
 
 
+def get_account_by_email(conn: Connection, email: str) -> Optional[Row]:
+    return conn.execute(
+        text("SELECT * FROM wallet_accounts WHERE email = :email"), {"email": email}
+    ).first()
+
+
+def set_senha_hash(conn: Connection, account_id: UUID, senha_hash: str) -> None:
+    conn.execute(
+        text("UPDATE wallet_accounts SET senha_hash = :h WHERE account_id = :id"),
+        {"h": senha_hash, "id": str(account_id)},
+    )
+
+
 def get_account_by_cpf(conn: Connection, cpf: str) -> Optional[Row]:
     return conn.execute(
         text("SELECT * FROM wallet_accounts WHERE cpf = :cpf"),
@@ -48,10 +61,10 @@ def create_account(
         text(
             """
             INSERT INTO wallet_accounts
-                (account_id, cpf, status, nome, celular, data_nascimento,
+                (account_id, cpf, status, nome, email, senha_hash, celular, data_nascimento,
                  cep, logradouro, numero, complemento, bairro, cidade, uf)
             VALUES
-                (:account_id, :cpf, :status, :nome, :celular, :data_nascimento,
+                (:account_id, :cpf, :status, :nome, :email, :senha_hash, :celular, :data_nascimento,
                  :cep, :logradouro, :numero, :complemento, :bairro, :cidade, :uf)
             RETURNING *
             """
@@ -61,6 +74,8 @@ def create_account(
             "cpf": cpf,
             "status": status,
             "nome": dados.get("nome"),
+            "email": dados.get("email"),
+            "senha_hash": dados.get("senha_hash"),
             "celular": dados.get("celular"),
             "data_nascimento": dados.get("data_nascimento"),
             "cep": dados.get("cep"),

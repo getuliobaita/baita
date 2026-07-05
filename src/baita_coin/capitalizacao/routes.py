@@ -9,12 +9,15 @@ from baita_coin.capitalizacao.gateway import GatewayPagamentoAdapter, MockGatewa
 from baita_coin.capitalizacao.schemas import (
     AbrirSorteioRequest,
     AtualizarCampanhaRequest,
+    AtualizarPlanoRequest,
     CampanhaResponse,
     CampanhasAtivasResponse,
     CompraDetalheResponse,
     CriarCampanhaRequest,
     CriarCompraRequest,
     CriarCompraResponse,
+    CriarPlanoRequest,
+    PlanoResponse,
     RelatorioCompradoresResponse,
     SorteioResponse,
     WebhookPagamentoRequest,
@@ -88,3 +91,25 @@ def abrir_sorteio_endpoint(payload: AbrirSorteioRequest, engine: Engine = Depend
 @router.get("/v1/admin/relatorios/compradores", response_model=RelatorioCompradoresResponse)
 def relatorio_compradores_endpoint(engine: Engine = Depends(get_engine)) -> RelatorioCompradoresResponse:
     return service.gerar_relatorio_compradores(engine)
+
+
+@router.get("/v1/planos", response_model=List[PlanoResponse])
+def listar_planos_endpoint(engine: Engine = Depends(get_engine)) -> List[PlanoResponse]:
+    return service.listar_planos(engine)
+
+
+@router.get("/v1/admin/planos", response_model=List[PlanoResponse])
+def listar_planos_admin_endpoint(engine: Engine = Depends(get_engine)) -> List[PlanoResponse]:
+    return service.listar_planos_admin(engine)
+
+
+@router.post("/v1/admin/planos", response_model=PlanoResponse, status_code=201)
+def criar_plano_endpoint(payload: CriarPlanoRequest, engine: Engine = Depends(get_engine)) -> PlanoResponse:
+    return service.criar_plano(engine, payload)
+
+
+@router.patch("/v1/admin/planos/{plano_id}", response_model=PlanoResponse)
+def atualizar_plano_endpoint(
+    plano_id: UUID, payload: AtualizarPlanoRequest, engine: Engine = Depends(get_engine)
+) -> PlanoResponse:
+    return service.atualizar_plano(engine, plano_id, payload)
