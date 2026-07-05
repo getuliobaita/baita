@@ -1,10 +1,12 @@
 """Orquestracao do catalogo de beneficios (desconto/cashback via afiliados).
 
 Diferente do motor de resgate (Fase 4), aqui nao ha reserva/confirmacao
-externa: o uso e sempre instantaneo -- debita 1 coin e gera o cupom/link
-na mesma transacao, atomicamente. Regra confirmada com o usuario: 1 coin =
-1 uso pontual, sem limite de repeticao por parceiro (so limitado pelo saldo).
+externa: o uso e sempre instantaneo -- debita o custo do beneficio e gera
+o cupom/link na mesma transacao, atomicamente. Custo por uso e
+configuravel POR BENEFICIO (campo `custo_em_coins`, padrao 1.00) -- decisao
+do usuario pra poder ajustar a mecanica de pontos por parceiro.
 """
+from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID, uuid4
 
@@ -13,9 +15,10 @@ from sqlalchemy.exc import IntegrityError
 
 from baita_coin.beneficios import repository as repo
 from baita_coin.beneficios.adapter import BeneficioAdapter
-from baita_coin.beneficios.constants import CUSTO_EM_COINS_POR_USO, STATUS_ATIVO, TIPO_DESCONTO
+from baita_coin.beneficios.constants import STATUS_ATIVO, TIPO_DESCONTO
 from baita_coin.beneficios.errors import BeneficioNaoEncontrado
 from baita_coin.beneficios.schemas import (
+    AtualizarBeneficioRequest,
     BeneficioResponse,
     CriarBeneficioRequest,
     UsarBeneficioRequest,
@@ -43,6 +46,7 @@ def _beneficio_para_response(row: Row) -> BeneficioResponse:
         uso=row.uso,
         descricao_oferta=row.descricao_oferta,
         percentual_referencia=row.percentual_referencia,
+        custo_em_coins=row.custo_em_coins,
         status=row.status,
     )
 
@@ -58,6 +62,7 @@ def criar_beneficio(engine: Engine, payload: CriarBeneficioRequest) -> Beneficio
             payload.uso,
             payload.descricao_oferta,
             payload.percentual_referencia,
+            payload.custo_em_coins,
         )
         return _beneficio_para_response(row)
 
@@ -70,11 +75,46 @@ def listar_beneficios(
         return [_beneficio_para_response(r) for r in rows]
 
 
-def _uso_para_response(row: Row) -> UsarBeneficioResponse:
+def listar_beneficios_admin(
+    engine: Engine, tipo: Optional[str] = None, categoria: Optional[str] = None
+) -> List[BeneficioResponse]:
+    with engine.begin() as conn:
+        rows = repo.list_beneficios_admin(conn, tipo, categoria)
+        return [_beneficio_para_response(r) for r in rows]
+
+
+def atualizar_beneficio(
+    engine: Engine, beneficio_id: UUID, payload: AtualizarBeneficioRequest
+) -> BeneficioResponse:
+    with engine.begin() as conn:
+        existente = repo.get_beneficio(conn, beneficio_id)
+        if existente is None:
+            raise BeneficioNaoEncontrado(
+                "beneficio_id nao encontrado", detalhes={"beneficio_id": str(beneficio_id)}
+            )
+        row = repo.atualizar_beneficio(
+            conn,
+            beneficio_id,
+            payload.nome,
+            payload.categoria,
+            payload.uso,
+            payload.descricao_oferta,
+            payload.percentual_referencia,
+            payload.custo_em_coins,
+            payload.status,
+        )
+        return _beneficio_para_response(row)
+
+
+def _uso_para_response(conn, row: Row) -> UsarBeneficioResponse:
+    # Le o valor debitado do ledger_event em vez de um custo fixo global --
+    # reflete exatamente o que foi cobrado NAQUELE uso, mesmo que o
+    # custo_em_coins do beneficio mude depois (auditoria correta).
+    evento = wallet_repo.get_ledger_event(conn, row.event_id)
     return UsarBeneficioResponse(
         uso_id=row.uso_id,
         beneficio_id=row.beneficio_id,
-        coins_debitados=CUSTO_EM_COINS_POR_USO,
+        coins_debitados=abs(Decimal(evento.coins)),
         codigo_cupom=row.codigo_cupom,
         link_afiliado=row.link_afiliado,
     )
@@ -95,7 +135,7 @@ def usar_beneficio(
                         "idempotency_key ja foi usada com um payload diferente",
                         detalhes={"uso_id_existente": str(existing.uso_id)},
                     )
-                return _uso_para_response(existing)
+                return _uso_para_response(conn, existing)
 
             beneficio = repo.get_beneficio(conn, beneficio_id)
             if beneficio is None or beneficio.status != STATUS_ATIVO:
@@ -109,19 +149,20 @@ def usar_beneficio(
                     "account_id nao encontrado", detalhes={"account_id": str(payload.account_id)}
                 )
 
+            custo = Decimal(beneficio.custo_em_coins)
             event_id = uuid4()
-            evento = wallet_repo.insert_ledger_event(
+            wallet_repo.insert_ledger_event(
                 conn,
                 event_id,
                 payload.account_id,
                 TipoEvento.DEBITO_BENEFICIO.value,
-                -CUSTO_EM_COINS_POR_USO,
+                -custo,
                 None,
                 beneficio_id,
                 payload.idempotency_key,
                 {"beneficio_nome": beneficio.nome, "tipo": beneficio.tipo},
             )
-            wallet_service.consumir_lotes_fifo(conn, payload.account_id, event_id, CUSTO_EM_COINS_POR_USO)
+            wallet_service.consumir_lotes_fifo(conn, payload.account_id, event_id, custo)
 
             if beneficio.tipo == TIPO_DESCONTO:
                 resultado = adapter.gerar_cupom(beneficio_id, payload.account_id)
@@ -138,7 +179,7 @@ def usar_beneficio(
                 resultado.codigo_cupom,
                 resultado.link_afiliado,
             )
-            return _uso_para_response(uso)
+            return _uso_para_response(conn, uso)
     except IntegrityError as exc:
         if _constraint_violada(exc) != _CONSTRAINT_USO_IDEMPOTENCY_KEY:
             raise
@@ -146,4 +187,4 @@ def usar_beneficio(
             existing = repo.get_uso_by_idempotency_key(conn, payload.idempotency_key)
             if existing is None:
                 raise
-            return _uso_para_response(existing)
+            return _uso_para_response(conn, existing)

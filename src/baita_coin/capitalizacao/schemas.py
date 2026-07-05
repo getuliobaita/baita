@@ -94,6 +94,22 @@ class CampanhaResponse(BaseModel):
     status: str
 
 
+class AtualizarCampanhaRequest(BaseModel):
+    nome: Optional[str] = None
+    multiplicador: Optional[Decimal] = None
+    vigencia_fim: Optional[datetime] = None
+    prioridade: Optional[int] = None
+    status: Optional[str] = None
+
+
+class RelatorioCompradoresResponse(BaseModel):
+    total_compradores_unicos: int
+    compradores_recorrentes: int
+    taxa_recompra: Decimal
+    total_compras_confirmadas: int
+    total_valor_reais_comprado: Decimal
+
+
 class AbrirSorteioRequest(BaseModel):
     data_sorteio: datetime
 

@@ -200,3 +200,78 @@ def test_get_compra_antes_da_confirmacao_mostra_status_aguardando(client, criar_
     detalhe = client.get(f"/v1/capitalizacao/compras/{compra_id}").json()
     assert detalhe["status"] == "aguardando_confirmacao_pagamento"
     assert detalhe["coins_creditados"] is None
+
+
+def test_listar_todas_campanhas_inclui_inativas(client):
+    criada = client.post(
+        "/v1/admin/campanhas-multiplicador",
+        json={
+            "nome": "Campanha de teste",
+            "multiplicador": 1.5,
+            "vigencia_inicio": "2020-01-01T00:00:00Z",
+            "vigencia_fim": "2020-02-01T00:00:00Z",  # ja encerrada
+            "prioridade": 1,
+        },
+    ).json()
+
+    resp = client.get("/v1/admin/campanhas-multiplicador")
+    assert resp.status_code == 200
+    ids = [c["campanha_id"] for c in resp.json()]
+    assert criada["campanha_id"] in ids
+
+    # nao aparece nas ativas, ja que a vigencia ja passou
+    ativas = client.get("/v1/campanhas/ativas").json()
+    ids_ativas = [c["campanha_id"] for c in ativas["campanhas"]]
+    assert criada["campanha_id"] not in ids_ativas
+
+
+def test_atualizar_campanha_encerra_antes_do_previsto(client, criar_conta_ativa):
+    campanha = client.post(
+        "/v1/admin/campanhas-multiplicador",
+        json={
+            "nome": "Campanha pra encerrar",
+            "multiplicador": 2.0,
+            "vigencia_inicio": "2020-01-01T00:00:00Z",
+            "vigencia_fim": "2099-01-01T00:00:00Z",
+            "prioridade": 5,
+        },
+    ).json()
+
+    patch = client.patch(
+        f"/v1/admin/campanhas-multiplicador/{campanha['campanha_id']}",
+        json={"status": "inativa"},
+    )
+    assert patch.status_code == 200
+    assert patch.json()["status"] == "inativa"
+
+    account_id = criar_conta_ativa()
+    _, resp_webhook = _comprar_e_confirmar(client, account_id, quantidade_pacotes=1, prefixo="pos_encerramento")
+    assert resp_webhook.status_code == 200
+    saldo = client.get(f"/v1/wallet/{account_id}/saldo").json()
+    assert saldo["saldo_coins"] == "20.00"  # sem multiplicador, ja que a campanha foi desativada
+
+
+def test_atualizar_campanha_inexistente_retorna_404(client):
+    import uuid
+
+    resp = client.patch(f"/v1/admin/campanhas-multiplicador/{uuid.uuid4()}", json={"status": "inativa"})
+    assert resp.status_code == 404
+    assert resp.json()["erro"]["codigo"] == "CAMPANHA_NAO_ENCONTRADA"
+
+
+def test_relatorio_de_compradores_conta_recorrentes(client, criar_conta_ativa):
+    conta_unica = criar_conta_ativa()
+    _comprar_e_confirmar(client, conta_unica, quantidade_pacotes=1, prefixo="rel_unica")
+
+    conta_recorrente = criar_conta_ativa()
+    _comprar_e_confirmar(client, conta_recorrente, quantidade_pacotes=1, prefixo="rel_rec_1")
+    _comprar_e_confirmar(client, conta_recorrente, quantidade_pacotes=2, prefixo="rel_rec_2")
+
+    resp = client.get("/v1/admin/relatorios/compradores")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total_compradores_unicos"] == 2
+    assert body["compradores_recorrentes"] == 1
+    assert body["total_compras_confirmadas"] == 3
+    assert body["total_valor_reais_comprado"] == "80.00"  # 20 + 20 + 40
+    assert body["taxa_recompra"] == "0.5000"

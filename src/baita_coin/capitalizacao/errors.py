@@ -27,3 +27,8 @@ class NenhumSorteioAberto(DomainError):
 class RegraCapitalizacaoNaoEncontrada(DomainError):
     codigo = "REGRA_CAPITALIZACAO_NAO_ENCONTRADA"
     status_code = 500
+
+
+class CampanhaNaoEncontrada(DomainError):
+    codigo = "CAMPANHA_NAO_ENCONTRADA"
+    status_code = 404

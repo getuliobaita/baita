@@ -12,6 +12,17 @@ class CriarBeneficioRequest(BaseModel):
     uso: Literal["online", "presencial"]
     descricao_oferta: str
     percentual_referencia: Optional[Decimal] = None
+    custo_em_coins: Decimal = Decimal("1.00")
+
+
+class AtualizarBeneficioRequest(BaseModel):
+    nome: Optional[str] = None
+    categoria: Optional[str] = None
+    uso: Optional[Literal["online", "presencial"]] = None
+    descricao_oferta: Optional[str] = None
+    percentual_referencia: Optional[Decimal] = None
+    custo_em_coins: Optional[Decimal] = None
+    status: Optional[Literal["ativo", "inativo"]] = None
 
 
 class BeneficioResponse(BaseModel):
@@ -22,6 +33,7 @@ class BeneficioResponse(BaseModel):
     uso: str
     descricao_oferta: str
     percentual_referencia: Optional[Decimal]
+    custo_em_coins: Decimal
     status: str
 
 

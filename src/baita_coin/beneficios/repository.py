@@ -16,12 +16,15 @@ def insert_beneficio(
     uso: str,
     descricao_oferta: str,
     percentual_referencia: Optional[Decimal],
+    custo_em_coins: Decimal,
 ) -> Row:
     return conn.execute(
         text(
             """
-            INSERT INTO beneficios (beneficio_id, nome, tipo, categoria, uso, descricao_oferta, percentual_referencia)
-            VALUES (:beneficio_id, :nome, :tipo, :categoria, :uso, :descricao_oferta, :percentual_referencia)
+            INSERT INTO beneficios
+                (beneficio_id, nome, tipo, categoria, uso, descricao_oferta, percentual_referencia, custo_em_coins)
+            VALUES
+                (:beneficio_id, :nome, :tipo, :categoria, :uso, :descricao_oferta, :percentual_referencia, :custo_em_coins)
             RETURNING *
             """
         ),
@@ -33,6 +36,7 @@ def insert_beneficio(
             "uso": uso,
             "descricao_oferta": descricao_oferta,
             "percentual_referencia": percentual_referencia,
+            "custo_em_coins": custo_em_coins,
         },
     ).first()
 
@@ -58,6 +62,64 @@ def list_beneficios(
     return conn.execute(
         text(f"SELECT * FROM beneficios WHERE {where} ORDER BY nome ASC"), params
     ).all()
+
+
+def list_beneficios_admin(
+    conn: Connection, tipo: Optional[str] = None, categoria: Optional[str] = None
+) -> List[Row]:
+    """Uso administrativo -- inclui inativos, diferente de list_beneficios
+    (publico, so mostra ativos)."""
+    condicoes = ["1 = 1"]
+    params = {}
+    if tipo is not None:
+        condicoes.append("tipo = :tipo")
+        params["tipo"] = tipo
+    if categoria is not None:
+        condicoes.append("categoria = :categoria")
+        params["categoria"] = categoria
+    where = " AND ".join(condicoes)
+    return conn.execute(
+        text(f"SELECT * FROM beneficios WHERE {where} ORDER BY nome ASC"), params
+    ).all()
+
+
+def atualizar_beneficio(
+    conn: Connection,
+    beneficio_id: UUID,
+    nome: Optional[str],
+    categoria: Optional[str],
+    uso: Optional[str],
+    descricao_oferta: Optional[str],
+    percentual_referencia: Optional[Decimal],
+    custo_em_coins: Optional[Decimal],
+    status: Optional[str],
+) -> Row:
+    return conn.execute(
+        text(
+            """
+            UPDATE beneficios
+            SET nome = COALESCE(:nome, nome),
+                categoria = COALESCE(:categoria, categoria),
+                uso = COALESCE(:uso, uso),
+                descricao_oferta = COALESCE(:descricao_oferta, descricao_oferta),
+                percentual_referencia = COALESCE(:percentual_referencia, percentual_referencia),
+                custo_em_coins = COALESCE(:custo_em_coins, custo_em_coins),
+                status = COALESCE(:status, status)
+            WHERE beneficio_id = :beneficio_id
+            RETURNING *
+            """
+        ),
+        {
+            "beneficio_id": str(beneficio_id),
+            "nome": nome,
+            "categoria": categoria,
+            "uso": uso,
+            "descricao_oferta": descricao_oferta,
+            "percentual_referencia": percentual_referencia,
+            "custo_em_coins": custo_em_coins,
+            "status": status,
+        },
+    ).first()
 
 
 def get_uso_by_idempotency_key(conn: Connection, idempotency_key: str) -> Optional[Row]:

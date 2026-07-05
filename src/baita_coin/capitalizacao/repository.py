@@ -8,6 +8,29 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection, Row
 
 
+def get_relatorio_compradores(conn: Connection) -> Row:
+    """'Recorrente' = ja fez 2+ compras confirmadas, sem janela de tempo
+    fixa (metrica simples de recompra historica, confirmada com o usuario)."""
+    return conn.execute(
+        text(
+            """
+            WITH compras_por_conta AS (
+                SELECT account_id, COUNT(*) AS qtd_compras, COALESCE(SUM(valor_reais), 0) AS valor_total
+                FROM compras_capitalizacao
+                WHERE status = 'confirmado'
+                GROUP BY account_id
+            )
+            SELECT
+                COUNT(*) AS total_compradores_unicos,
+                COUNT(*) FILTER (WHERE qtd_compras >= 2) AS compradores_recorrentes,
+                COALESCE(SUM(qtd_compras), 0) AS total_compras_confirmadas,
+                COALESCE(SUM(valor_total), 0::numeric(14,2)) AS total_valor_reais_comprado
+            FROM compras_por_conta
+            """
+        )
+    ).first()
+
+
 def get_regra_vigente(conn: Connection, momento: datetime) -> Optional[Row]:
     return conn.execute(
         text(
@@ -36,6 +59,51 @@ def get_campanhas_ativas_gerais(conn: Connection, momento: datetime) -> List[Row
         ),
         {"momento": momento},
     ).all()
+
+
+def get_campanha(conn: Connection, campanha_id: UUID) -> Optional[Row]:
+    return conn.execute(
+        text("SELECT * FROM campanhas_multiplicador WHERE campanha_id = :id"), {"id": str(campanha_id)}
+    ).first()
+
+
+def list_campanhas(conn: Connection) -> List[Row]:
+    """Todas as campanhas, qualquer status/vigencia -- uso administrativo
+    (a listagem publica em get_campanhas_ativas_gerais so mostra as vigentes)."""
+    return conn.execute(text("SELECT * FROM campanhas_multiplicador ORDER BY criado_em DESC")).all()
+
+
+def atualizar_campanha(
+    conn: Connection,
+    campanha_id: UUID,
+    nome: Optional[str],
+    multiplicador: Optional[Decimal],
+    vigencia_fim: Optional[datetime],
+    prioridade: Optional[int],
+    status: Optional[str],
+) -> Row:
+    return conn.execute(
+        text(
+            """
+            UPDATE campanhas_multiplicador
+            SET nome = COALESCE(:nome, nome),
+                multiplicador = COALESCE(:multiplicador, multiplicador),
+                vigencia_fim = COALESCE(:vigencia_fim, vigencia_fim),
+                prioridade = COALESCE(:prioridade, prioridade),
+                status = COALESCE(:status, status)
+            WHERE campanha_id = :campanha_id
+            RETURNING *
+            """
+        ),
+        {
+            "campanha_id": str(campanha_id),
+            "nome": nome,
+            "multiplicador": multiplicador,
+            "vigencia_fim": vigencia_fim,
+            "prioridade": prioridade,
+            "status": status,
+        },
+    ).first()
 
 
 def insert_campanha(

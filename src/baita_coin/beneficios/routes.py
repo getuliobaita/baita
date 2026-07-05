@@ -7,6 +7,7 @@ from sqlalchemy.engine import Engine
 from baita_coin.beneficios import service
 from baita_coin.beneficios.adapter import BeneficioAdapter, MockBeneficioAdapter
 from baita_coin.beneficios.schemas import (
+    AtualizarBeneficioRequest,
     BeneficioResponse,
     CriarBeneficioRequest,
     UsarBeneficioRequest,
@@ -39,6 +40,20 @@ def listar_beneficios_endpoint(
     tipo: Optional[str] = None, categoria: Optional[str] = None, engine: Engine = Depends(get_engine)
 ) -> List[BeneficioResponse]:
     return service.listar_beneficios(engine, tipo, categoria)
+
+
+@router.get("/v1/admin/beneficios", response_model=List[BeneficioResponse])
+def listar_beneficios_admin_endpoint(
+    tipo: Optional[str] = None, categoria: Optional[str] = None, engine: Engine = Depends(get_engine)
+) -> List[BeneficioResponse]:
+    return service.listar_beneficios_admin(engine, tipo, categoria)
+
+
+@router.patch("/v1/admin/beneficios/{beneficio_id}", response_model=BeneficioResponse)
+def atualizar_beneficio_endpoint(
+    beneficio_id: UUID, payload: AtualizarBeneficioRequest, engine: Engine = Depends(get_engine)
+) -> BeneficioResponse:
+    return service.atualizar_beneficio(engine, beneficio_id, payload)
 
 
 @router.post("/v1/beneficios/{beneficio_id}/usar", response_model=UsarBeneficioResponse)

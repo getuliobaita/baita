@@ -9,7 +9,7 @@ dobro nem deixa titulo/numero orfao.
 """
 from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy.engine import Engine, Row
@@ -23,6 +23,7 @@ from baita_coin.capitalizacao.constants import (
     VALOR_PACOTE_REAIS,
 )
 from baita_coin.capitalizacao.errors import (
+    CampanhaNaoEncontrada,
     CompraEmEstadoInvalido,
     CompraNaoEncontrada,
     NenhumSorteioAberto,
@@ -33,6 +34,7 @@ from baita_coin.capitalizacao.gateway import GatewayPagamentoAdapter
 from baita_coin.capitalizacao.motor_conversao import Campanha, calcular_coins_capitalizacao
 from baita_coin.capitalizacao.schemas import (
     AbrirSorteioRequest,
+    AtualizarCampanhaRequest,
     CampanhaAplicada,
     CampanhaAtivaResponse,
     CampanhaResponse,
@@ -43,6 +45,7 @@ from baita_coin.capitalizacao.schemas import (
     CriarCompraResponse,
     NumerosSorteResumo,
     RegraAplicada,
+    RelatorioCompradoresResponse,
     SorteioResponse,
     WebhookPagamentoRequest,
     WebhookPagamentoResponse,
@@ -84,6 +87,19 @@ def abrir_sorteio(engine: Engine, payload: AbrirSorteioRequest) -> SorteioRespon
 # ---------------------------------------------------------------------------
 
 
+def _campanha_row_to_response(row: Row) -> CampanhaResponse:
+    return CampanhaResponse(
+        campanha_id=row.campanha_id,
+        nome=row.nome,
+        multiplicador=row.multiplicador,
+        vigencia_inicio=row.vigencia_inicio,
+        vigencia_fim=row.vigencia_fim,
+        prioridade=row.prioridade,
+        escopo_parceiro=row.escopo_parceiro,
+        status=row.status,
+    )
+
+
 def criar_campanha(engine: Engine, payload: CriarCampanhaRequest) -> CampanhaResponse:
     with engine.begin() as conn:
         row = repo.insert_campanha(
@@ -96,16 +112,34 @@ def criar_campanha(engine: Engine, payload: CriarCampanhaRequest) -> CampanhaRes
             payload.prioridade,
             payload.escopo_parceiro,
         )
-        return CampanhaResponse(
-            campanha_id=row.campanha_id,
-            nome=row.nome,
-            multiplicador=row.multiplicador,
-            vigencia_inicio=row.vigencia_inicio,
-            vigencia_fim=row.vigencia_fim,
-            prioridade=row.prioridade,
-            escopo_parceiro=row.escopo_parceiro,
-            status=row.status,
+        return _campanha_row_to_response(row)
+
+
+def listar_todas_campanhas(engine: Engine) -> List[CampanhaResponse]:
+    """Uso administrativo -- qualquer status/vigencia, diferente de
+    listar_campanhas_ativas (que so mostra as vigentes agora, uso publico)."""
+    with engine.begin() as conn:
+        rows = repo.list_campanhas(conn)
+        return [_campanha_row_to_response(r) for r in rows]
+
+
+def atualizar_campanha(engine: Engine, campanha_id: UUID, payload: AtualizarCampanhaRequest) -> CampanhaResponse:
+    with engine.begin() as conn:
+        existente = repo.get_campanha(conn, campanha_id)
+        if existente is None:
+            raise CampanhaNaoEncontrada(
+                "campanha_id nao encontrado", detalhes={"campanha_id": str(campanha_id)}
+            )
+        row = repo.atualizar_campanha(
+            conn,
+            campanha_id,
+            payload.nome,
+            payload.multiplicador,
+            payload.vigencia_fim,
+            payload.prioridade,
+            payload.status,
         )
+        return _campanha_row_to_response(row)
 
 
 def listar_campanhas_ativas(engine: Engine) -> CampanhasAtivasResponse:
@@ -322,3 +356,23 @@ def processar_webhook_pagamento(engine: Engine, payload: WebhookPagamentoRequest
 
         atualizada = repo.confirmar_compra(conn, compra.compra_id, event_id)
         return WebhookPagamentoResponse(compra_id=atualizada.compra_id, status=atualizada.status)
+
+
+# ---------------------------------------------------------------------------
+# Relatorios administrativos
+# ---------------------------------------------------------------------------
+
+
+def gerar_relatorio_compradores(engine: Engine) -> RelatorioCompradoresResponse:
+    with engine.begin() as conn:
+        row = repo.get_relatorio_compradores(conn)
+        total = row.total_compradores_unicos or 0
+        recorrentes = row.compradores_recorrentes or 0
+        taxa = (Decimal(recorrentes) / Decimal(total)) if total > 0 else Decimal("0")
+        return RelatorioCompradoresResponse(
+            total_compradores_unicos=total,
+            compradores_recorrentes=recorrentes,
+            taxa_recompra=taxa.quantize(Decimal("0.0001")),
+            total_compras_confirmadas=row.total_compras_confirmadas or 0,
+            total_valor_reais_comprado=row.total_valor_reais_comprado,
+        )

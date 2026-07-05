@@ -1,3 +1,4 @@
+from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
@@ -7,12 +8,14 @@ from baita_coin.capitalizacao import service
 from baita_coin.capitalizacao.gateway import GatewayPagamentoAdapter, MockGatewayPagamentoAdapter
 from baita_coin.capitalizacao.schemas import (
     AbrirSorteioRequest,
+    AtualizarCampanhaRequest,
     CampanhaResponse,
     CampanhasAtivasResponse,
     CompraDetalheResponse,
     CriarCampanhaRequest,
     CriarCompraRequest,
     CriarCompraResponse,
+    RelatorioCompradoresResponse,
     SorteioResponse,
     WebhookPagamentoRequest,
     WebhookPagamentoResponse,
@@ -65,6 +68,23 @@ def criar_campanha_endpoint(
     return service.criar_campanha(engine, payload)
 
 
+@router.get("/v1/admin/campanhas-multiplicador", response_model=List[CampanhaResponse])
+def listar_todas_campanhas_endpoint(engine: Engine = Depends(get_engine)) -> List[CampanhaResponse]:
+    return service.listar_todas_campanhas(engine)
+
+
+@router.patch("/v1/admin/campanhas-multiplicador/{campanha_id}", response_model=CampanhaResponse)
+def atualizar_campanha_endpoint(
+    campanha_id: UUID, payload: AtualizarCampanhaRequest, engine: Engine = Depends(get_engine)
+) -> CampanhaResponse:
+    return service.atualizar_campanha(engine, campanha_id, payload)
+
+
 @router.post("/v1/internal/sorteios", response_model=SorteioResponse, status_code=201)
 def abrir_sorteio_endpoint(payload: AbrirSorteioRequest, engine: Engine = Depends(get_engine)) -> SorteioResponse:
     return service.abrir_sorteio(engine, payload)
+
+
+@router.get("/v1/admin/relatorios/compradores", response_model=RelatorioCompradoresResponse)
+def relatorio_compradores_endpoint(engine: Engine = Depends(get_engine)) -> RelatorioCompradoresResponse:
+    return service.gerar_relatorio_compradores(engine)

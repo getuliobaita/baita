@@ -133,3 +133,52 @@ def test_listar_beneficios_filtra_por_tipo(client):
     nomes = [b["nome"] for b in resp.json()]
     assert "Parceiro Cashback Y" in nomes
     assert "Parceiro Desconto X" not in nomes
+
+
+def test_atualizar_custo_em_coins_muda_valor_debitado_no_proximo_uso(client, criar_conta_ativa):
+    account_id = criar_conta_ativa()
+    _creditar(client, account_id, "10.00", "cred_5")
+    beneficio_id = _criar_beneficio(client, nome="Parceiro Premium")
+
+    patch = client.patch(f"/v1/admin/beneficios/{beneficio_id}", json={"custo_em_coins": 3.0})
+    assert patch.status_code == 200
+    assert patch.json()["custo_em_coins"] == "3.00"
+
+    resp = client.post(
+        f"/v1/beneficios/{beneficio_id}/usar",
+        json={"account_id": str(account_id), "idempotency_key": "uso_custo_alto"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["coins_debitados"] == "3.00"
+
+    saldo = client.get(f"/v1/wallet/{account_id}/saldo").json()
+    assert saldo["saldo_coins"] == "7.00"
+
+
+def test_desativar_beneficio_impede_novo_uso(client, criar_conta_ativa):
+    account_id = criar_conta_ativa()
+    _creditar(client, account_id, "10.00", "cred_6")
+    beneficio_id = _criar_beneficio(client, nome="Parceiro a Desativar")
+
+    client.patch(f"/v1/admin/beneficios/{beneficio_id}", json={"status": "inativo"})
+
+    resp = client.post(
+        f"/v1/beneficios/{beneficio_id}/usar",
+        json={"account_id": str(account_id), "idempotency_key": "uso_desativado"},
+    )
+    assert resp.status_code == 404
+
+    # desativado nao aparece na listagem publica, mas aparece na admin
+    publico = client.get("/v1/beneficios").json()
+    assert not any(b["beneficio_id"] == beneficio_id for b in publico)
+
+    admin = client.get("/v1/admin/beneficios").json()
+    assert any(b["beneficio_id"] == beneficio_id and b["status"] == "inativo" for b in admin)
+
+
+def test_atualizar_beneficio_inexistente_retorna_404(client):
+    import uuid
+
+    resp = client.patch(f"/v1/admin/beneficios/{uuid.uuid4()}", json={"status": "inativo"})
+    assert resp.status_code == 404
+    assert resp.json()["erro"]["codigo"] == "BENEFICIO_NAO_ENCONTRADO"
