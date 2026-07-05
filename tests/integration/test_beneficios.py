@@ -182,3 +182,35 @@ def test_atualizar_beneficio_inexistente_retorna_404(client):
     resp = client.patch(f"/v1/admin/beneficios/{uuid.uuid4()}", json={"status": "inativo"})
     assert resp.status_code == 404
     assert resp.json()["erro"]["codigo"] == "BENEFICIO_NAO_ENCONTRADO"
+
+
+def test_beneficio_com_logo_capa_e_chamada(client):
+    criado = client.post(
+        "/v1/admin/beneficios",
+        json={
+            "nome": "Nike Vitrine",
+            "tipo": "cashback",
+            "categoria": "Esportes",
+            "uso": "online",
+            "descricao_oferta": "Até 5,5% de Cashback",
+            "logo_url": "https://cdn.exemplo.com/nike-logo.png",
+            "imagem_capa_url": "https://cdn.exemplo.com/nike-capa.jpg",
+            "chamada": "Tênis novo com dinheiro de volta na conta",
+        },
+    ).json()
+    assert criado["logo_url"] == "https://cdn.exemplo.com/nike-logo.png"
+    assert criado["chamada"] == "Tênis novo com dinheiro de volta na conta"
+
+    # editar so a chamada preserva as imagens
+    editado = client.patch(
+        f"/v1/admin/beneficios/{criado['beneficio_id']}",
+        json={"chamada": "Corre que é só hoje"},
+    ).json()
+    assert editado["chamada"] == "Corre que é só hoje"
+    assert editado["logo_url"] == "https://cdn.exemplo.com/nike-logo.png"
+    assert editado["imagem_capa_url"] == "https://cdn.exemplo.com/nike-capa.jpg"
+
+    # aparece na listagem publica com os campos novos
+    listado = client.get("/v1/beneficios", params={"categoria": "Esportes"}).json()
+    achado = next(b for b in listado if b["beneficio_id"] == criado["beneficio_id"])
+    assert achado["logo_url"] is not None

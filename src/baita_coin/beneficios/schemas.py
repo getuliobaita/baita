@@ -13,6 +13,9 @@ class CriarBeneficioRequest(BaseModel):
     descricao_oferta: str
     percentual_referencia: Optional[Decimal] = None
     custo_em_coins: Decimal = Decimal("1.00")
+    logo_url: Optional[str] = None
+    imagem_capa_url: Optional[str] = None
+    chamada: Optional[str] = Field(default=None, max_length=150)
 
 
 class AtualizarBeneficioRequest(BaseModel):
@@ -23,6 +26,9 @@ class AtualizarBeneficioRequest(BaseModel):
     percentual_referencia: Optional[Decimal] = None
     custo_em_coins: Optional[Decimal] = None
     status: Optional[Literal["ativo", "inativo"]] = None
+    logo_url: Optional[str] = None
+    imagem_capa_url: Optional[str] = None
+    chamada: Optional[str] = Field(default=None, max_length=150)
 
 
 class BeneficioResponse(BaseModel):
@@ -35,6 +41,9 @@ class BeneficioResponse(BaseModel):
     percentual_referencia: Optional[Decimal]
     custo_em_coins: Decimal
     status: str
+    logo_url: Optional[str]
+    imagem_capa_url: Optional[str]
+    chamada: Optional[str]
 
 
 class UsarBeneficioRequest(BaseModel):

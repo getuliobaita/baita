@@ -48,6 +48,9 @@ def _beneficio_para_response(row: Row) -> BeneficioResponse:
         percentual_referencia=row.percentual_referencia,
         custo_em_coins=row.custo_em_coins,
         status=row.status,
+        logo_url=row.logo_url,
+        imagem_capa_url=row.imagem_capa_url,
+        chamada=row.chamada,
     )
 
 
@@ -63,6 +66,9 @@ def criar_beneficio(engine: Engine, payload: CriarBeneficioRequest) -> Beneficio
             payload.descricao_oferta,
             payload.percentual_referencia,
             payload.custo_em_coins,
+            payload.logo_url,
+            payload.imagem_capa_url,
+            payload.chamada,
         )
         return _beneficio_para_response(row)
 
@@ -102,6 +108,9 @@ def atualizar_beneficio(
             payload.percentual_referencia,
             payload.custo_em_coins,
             payload.status,
+            payload.logo_url,
+            payload.imagem_capa_url,
+            payload.chamada,
         )
         return _beneficio_para_response(row)
 

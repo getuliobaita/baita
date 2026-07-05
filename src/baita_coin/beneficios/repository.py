@@ -17,14 +17,19 @@ def insert_beneficio(
     descricao_oferta: str,
     percentual_referencia: Optional[Decimal],
     custo_em_coins: Decimal,
+    logo_url: Optional[str] = None,
+    imagem_capa_url: Optional[str] = None,
+    chamada: Optional[str] = None,
 ) -> Row:
     return conn.execute(
         text(
             """
             INSERT INTO beneficios
-                (beneficio_id, nome, tipo, categoria, uso, descricao_oferta, percentual_referencia, custo_em_coins)
+                (beneficio_id, nome, tipo, categoria, uso, descricao_oferta, percentual_referencia,
+                 custo_em_coins, logo_url, imagem_capa_url, chamada)
             VALUES
-                (:beneficio_id, :nome, :tipo, :categoria, :uso, :descricao_oferta, :percentual_referencia, :custo_em_coins)
+                (:beneficio_id, :nome, :tipo, :categoria, :uso, :descricao_oferta, :percentual_referencia,
+                 :custo_em_coins, :logo_url, :imagem_capa_url, :chamada)
             RETURNING *
             """
         ),
@@ -37,6 +42,9 @@ def insert_beneficio(
             "descricao_oferta": descricao_oferta,
             "percentual_referencia": percentual_referencia,
             "custo_em_coins": custo_em_coins,
+            "logo_url": logo_url,
+            "imagem_capa_url": imagem_capa_url,
+            "chamada": chamada,
         },
     ).first()
 
@@ -93,6 +101,9 @@ def atualizar_beneficio(
     percentual_referencia: Optional[Decimal],
     custo_em_coins: Optional[Decimal],
     status: Optional[str],
+    logo_url: Optional[str] = None,
+    imagem_capa_url: Optional[str] = None,
+    chamada: Optional[str] = None,
 ) -> Row:
     return conn.execute(
         text(
@@ -104,7 +115,10 @@ def atualizar_beneficio(
                 descricao_oferta = COALESCE(:descricao_oferta, descricao_oferta),
                 percentual_referencia = COALESCE(:percentual_referencia, percentual_referencia),
                 custo_em_coins = COALESCE(:custo_em_coins, custo_em_coins),
-                status = COALESCE(:status, status)
+                status = COALESCE(:status, status),
+                logo_url = COALESCE(:logo_url, logo_url),
+                imagem_capa_url = COALESCE(:imagem_capa_url, imagem_capa_url),
+                chamada = COALESCE(:chamada, chamada)
             WHERE beneficio_id = :beneficio_id
             RETURNING *
             """
@@ -118,6 +132,9 @@ def atualizar_beneficio(
             "percentual_referencia": percentual_referencia,
             "custo_em_coins": custo_em_coins,
             "status": status,
+            "logo_url": logo_url,
+            "imagem_capa_url": imagem_capa_url,
+            "chamada": chamada,
         },
     ).first()
 
