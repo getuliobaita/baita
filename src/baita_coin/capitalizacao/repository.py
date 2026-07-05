@@ -32,12 +32,21 @@ def insert_plano(
     descricao: Optional[str],
     destaque: bool,
     ordem: int,
+    metodos_pagamento: Optional[list] = None,
+    periodicidade: str = "unica",
+    vantagens: Optional[list] = None,
 ) -> Row:
+    import json
+
     return conn.execute(
         text(
             """
-            INSERT INTO planos (plano_id, nome, quantidade_pacotes, descricao, destaque, ordem)
-            VALUES (:plano_id, :nome, :quantidade_pacotes, :descricao, :destaque, :ordem)
+            INSERT INTO planos
+                (plano_id, nome, quantidade_pacotes, descricao, destaque, ordem,
+                 metodos_pagamento, periodicidade, vantagens)
+            VALUES
+                (:plano_id, :nome, :quantidade_pacotes, :descricao, :destaque, :ordem,
+                 CAST(:metodos_pagamento AS jsonb), :periodicidade, CAST(:vantagens AS jsonb))
             RETURNING *
             """
         ),
@@ -48,6 +57,9 @@ def insert_plano(
             "descricao": descricao,
             "destaque": destaque,
             "ordem": ordem,
+            "metodos_pagamento": json.dumps(metodos_pagamento or ["pix"]),
+            "periodicidade": periodicidade,
+            "vantagens": json.dumps(vantagens or []),
         },
     ).first()
 
@@ -61,7 +73,12 @@ def atualizar_plano(
     destaque: Optional[bool],
     ordem: Optional[int],
     status: Optional[str],
+    metodos_pagamento: Optional[list] = None,
+    periodicidade: Optional[str] = None,
+    vantagens: Optional[list] = None,
 ) -> Row:
+    import json
+
     return conn.execute(
         text(
             """
@@ -71,7 +88,10 @@ def atualizar_plano(
                 descricao = COALESCE(:descricao, descricao),
                 destaque = COALESCE(:destaque, destaque),
                 ordem = COALESCE(:ordem, ordem),
-                status = COALESCE(:status, status)
+                status = COALESCE(:status, status),
+                metodos_pagamento = COALESCE(CAST(:metodos_pagamento AS jsonb), metodos_pagamento),
+                periodicidade = COALESCE(:periodicidade, periodicidade),
+                vantagens = COALESCE(CAST(:vantagens AS jsonb), vantagens)
             WHERE plano_id = :plano_id
             RETURNING *
             """
@@ -84,6 +104,9 @@ def atualizar_plano(
             "destaque": destaque,
             "ordem": ordem,
             "status": status,
+            "metodos_pagamento": json.dumps(metodos_pagamento) if metodos_pagamento is not None else None,
+            "periodicidade": periodicidade,
+            "vantagens": json.dumps(vantagens) if vantagens is not None else None,
         },
     ).first()
 

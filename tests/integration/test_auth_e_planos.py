@@ -124,3 +124,51 @@ def test_admin_cria_e_desativa_plano(client):
 
     admin = client.get("/v1/admin/planos").json()
     assert criado.json()["plano_id"] in [p["plano_id"] for p in admin]
+
+
+def test_plano_com_metodos_recorrencia_e_vantagens(client):
+    criado = client.post(
+        "/v1/admin/planos",
+        json={
+            "nome": "Baita Mensal",
+            "quantidade_pacotes": 1,
+            "periodicidade": "mensal",
+            "metodos_pagamento": ["pix", "pix_recorrente", "cartao_credito_recorrente"],
+            "vantagens": ["20 Baita Coins todo mes", "1 numero da sorte", "140+ parceiros"],
+            "ordem": 50,
+        },
+    )
+    assert criado.status_code == 201
+    body = criado.json()
+    assert body["periodicidade"] == "mensal"
+    assert set(body["metodos_pagamento"]) == {"pix", "pix_recorrente", "cartao_credito_recorrente"}
+    assert len(body["vantagens"]) == 3
+
+    # editar so os metodos preserva o resto
+    patch = client.patch(
+        f"/v1/admin/planos/{body['plano_id']}", json={"metodos_pagamento": ["pix"]}
+    ).json()
+    assert patch["metodos_pagamento"] == ["pix"]
+    assert patch["periodicidade"] == "mensal"
+    assert len(patch["vantagens"]) == 3
+
+    # aparece na vitrine publica com os campos novos
+    publicos = client.get("/v1/planos").json()
+    achado = next(p for p in publicos if p["plano_id"] == body["plano_id"])
+    assert achado["vantagens"][0] == "20 Baita Coins todo mes"
+
+
+def test_metodo_de_pagamento_invalido_e_rejeitado(client):
+    resp = client.post(
+        "/v1/admin/planos",
+        json={"nome": "X", "quantidade_pacotes": 1, "metodos_pagamento": ["boleto"]},
+    )
+    assert resp.status_code == 422
+
+
+def test_planos_seed_ganharam_configuracao_padrao(client):
+    publicos = client.get("/v1/planos").json()
+    mensal = next(p for p in publicos if p["quantidade_pacotes"] == 1)
+    assert mensal["periodicidade"] == "mensal"
+    assert "pix_recorrente" in mensal["metodos_pagamento"]
+    assert len(mensal["vantagens"]) >= 1

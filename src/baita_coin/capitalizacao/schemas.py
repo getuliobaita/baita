@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -28,6 +28,10 @@ class CriarCompraResponse(BaseModel):
     pagamento: Optional[DadosPagamento] = None
 
 
+MetodoPagamento = Literal["pix", "pix_recorrente", "cartao_credito_recorrente"]
+Periodicidade = Literal["unica", "mensal"]
+
+
 class PlanoResponse(BaseModel):
     plano_id: UUID
     nome: str
@@ -37,6 +41,9 @@ class PlanoResponse(BaseModel):
     destaque: bool
     ordem: int
     status: str
+    metodos_pagamento: List[MetodoPagamento]
+    periodicidade: Periodicidade
+    vantagens: List[str]
 
 
 class CriarPlanoRequest(BaseModel):
@@ -45,6 +52,9 @@ class CriarPlanoRequest(BaseModel):
     descricao: Optional[str] = None
     destaque: bool = False
     ordem: int = 0
+    metodos_pagamento: List[MetodoPagamento] = Field(default_factory=lambda: ["pix"], min_length=1)
+    periodicidade: Periodicidade = "unica"
+    vantagens: List[str] = Field(default_factory=list)
 
 
 class AtualizarPlanoRequest(BaseModel):
@@ -54,6 +64,9 @@ class AtualizarPlanoRequest(BaseModel):
     destaque: Optional[bool] = None
     ordem: Optional[int] = None
     status: Optional[str] = None
+    metodos_pagamento: Optional[List[MetodoPagamento]] = Field(default=None, min_length=1)
+    periodicidade: Optional[Periodicidade] = None
+    vantagens: Optional[List[str]] = None
 
 
 class RegraAplicada(BaseModel):

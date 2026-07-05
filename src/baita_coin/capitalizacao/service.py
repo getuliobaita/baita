@@ -245,6 +245,9 @@ def _plano_para_response(row: Row) -> PlanoResponse:
         destaque=row.destaque,
         ordem=row.ordem,
         status=row.status,
+        metodos_pagamento=list(row.metodos_pagamento or []),
+        periodicidade=row.periodicidade,
+        vantagens=list(row.vantagens or []),
     )
 
 
@@ -263,6 +266,7 @@ def criar_plano(engine: Engine, payload: CriarPlanoRequest) -> PlanoResponse:
         row = repo.insert_plano(
             conn, uuid4(), payload.nome, payload.quantidade_pacotes, payload.descricao,
             payload.destaque, payload.ordem,
+            payload.metodos_pagamento, payload.periodicidade, payload.vantagens,
         )
         return _plano_para_response(row)
 
@@ -275,6 +279,7 @@ def atualizar_plano(engine: Engine, plano_id: UUID, payload: AtualizarPlanoReque
         row = repo.atualizar_plano(
             conn, plano_id, payload.nome, payload.quantidade_pacotes, payload.descricao,
             payload.destaque, payload.ordem, payload.status,
+            payload.metodos_pagamento, payload.periodicidade, payload.vantagens,
         )
         return _plano_para_response(row)
 
