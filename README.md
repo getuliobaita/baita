@@ -42,6 +42,7 @@ src/baita_coin/
 ├── notas_fiscais/     # cashback por NF de parceiro (QR/OCR/SEFAZ + antifraude)
 ├── resgates/          # troca de coins por produtos (reserva → confirmação → débito)
 ├── anuncios/          # espaços de mídia do app (slots livres) + upload de imagens
+├── site_config/       # aparência do app editada pelo manager (rascunho → publicar)
 ├── admin_usuarios/    # listagem/detalhe/tags de usuários pro painel
 ├── fiscal/            # emissão de NFS-e da venda (NFe.io)
 ├── notificacoes/      # WhatsApp (senha temporária, avisos)

@@ -24,6 +24,7 @@ TEST_DATABASE_URL = os.environ.get(
 # nao estado por teste. Truncar `sorteios` apagaria o sorteio aberto que
 # todo teste de compra depende para gerar numeros da sorte.
 _TABELAS_EM_ORDEM_DE_LIMPEZA = [
+    "site_config_publicacoes",
     "consumo_lotes",
     "numeros_sorte",
     "capitalizacao_titulos",
@@ -75,6 +76,11 @@ def _limpar_tabelas(test_engine):
     with test_engine.begin() as conn:
         for tabela in _TABELAS_EM_ORDEM_DE_LIMPEZA:
             conn.execute(text(f"TRUNCATE TABLE {tabela} CASCADE"))
+        # site_config tem duas linhas fixas (rascunho/publicado) criadas pela
+        # migration -- resetamos o conteudo em vez de truncar.
+        conn.execute(
+            text("UPDATE site_config SET conteudo = '{}'::jsonb, publicado_em = NULL, atualizado_em = now()")
+        )
 
 
 @pytest.fixture(autouse=True)
@@ -138,6 +144,7 @@ def client(test_engine):
     from baita_coin.main import create_app
     from baita_coin.notas_fiscais.routes import get_engine as get_notas_fiscais_engine
     from baita_coin.resgates.routes import get_engine as get_resgates_engine
+    from baita_coin.site_config.routes import get_engine as get_site_config_engine
     from baita_coin.wallet.routes import get_engine as get_wallet_engine
 
     app = create_app()
@@ -149,5 +156,6 @@ def client(test_engine):
     app.dependency_overrides[get_anuncios_engine] = lambda: test_engine
     app.dependency_overrides[get_admin_usuarios_engine] = lambda: test_engine
     app.dependency_overrides[get_fiscal_engine] = lambda: test_engine
+    app.dependency_overrides[get_site_config_engine] = lambda: test_engine
     with TestClient(app) as test_client:
         yield test_client
