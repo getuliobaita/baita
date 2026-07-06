@@ -1,0 +1,125 @@
+"""Adapter real do Pagar.me (API Core v5) -- PIX.
+
+Ativado por GATEWAY_PROVIDER=pagarme + PAGARME_SECRET_KEY no ambiente.
+Fluxo: cria um pedido com pagamento PIX; o QR/copia-e-cola volta na
+resposta e a confirmacao chega depois pelo webhook (order.paid) em
+POST /v1/webhooks/pagarme.
+
+Cartao de credito com recorrencia usa a API de assinaturas do Pagar.me,
+que e um fluxo separado (plano + assinatura + cobranca automatica) --
+proxima etapa da integracao; por ora este adapter atende PIX avulso.
+"""
+import base64
+import logging
+from decimal import Decimal
+from typing import Any, Dict, Optional
+from uuid import UUID
+
+import requests
+
+from baita_coin.capitalizacao.gateway import GatewayPagamentoAdapter, ResultadoCobranca
+from baita_coin.wallet.errors import DomainError
+
+logger = logging.getLogger("baita.pagarme")
+
+_BASE_URL = "https://api.pagar.me/core/v5"
+
+
+class ErroGatewayPagamento(DomainError):
+    codigo = "ERRO_GATEWAY_PAGAMENTO"
+    status_code = 502
+
+
+class PagarmeGatewayAdapter(GatewayPagamentoAdapter):
+    def __init__(self, secret_key: str, timeout_segundos: int = 20) -> None:
+        self._auth_header = "Basic " + base64.b64encode(f"{secret_key}:".encode()).decode()
+        self._timeout = timeout_segundos
+
+    def iniciar_cobranca(
+        self,
+        *,
+        compra_id: UUID,
+        valor_reais: Decimal,
+        metodo_pagamento: Dict[str, Any],
+        cliente: Optional[Dict[str, Any]] = None,
+    ) -> ResultadoCobranca:
+        cliente = cliente or {}
+        if not cliente.get("cpf"):
+            raise ErroGatewayPagamento(
+                "Pagamento real exige CPF do cliente na conta -- complete o cadastro."
+            )
+
+        centavos = int(valor_reais * 100)
+        payload = {
+            "items": [
+                {
+                    "amount": centavos,
+                    "description": "Baita Beneficios - pacotes Baita Coin",
+                    "quantity": 1,
+                    "code": str(compra_id),
+                }
+            ],
+            "customer": {
+                "name": cliente.get("nome") or "Cliente Baita",
+                "email": cliente.get("email") or f"{cliente['cpf']}@sememail.baita",
+                "document": cliente["cpf"],
+                "document_type": "CPF",
+                "type": "individual",
+                "phones": _phones(cliente.get("celular")),
+            },
+            "payments": [
+                {
+                    "payment_method": "pix",
+                    "pix": {"expires_in": 3600},
+                }
+            ],
+            "metadata": {"compra_id": str(compra_id)},
+            "code": str(compra_id),
+        }
+
+        try:
+            resposta = requests.post(
+                f"{_BASE_URL}/orders",
+                json=payload,
+                headers={"Authorization": self._auth_header, "Content-Type": "application/json"},
+                timeout=self._timeout,
+            )
+        except requests.RequestException as exc:
+            logger.error("falha de rede ao criar pedido no Pagar.me: %s", exc)
+            raise ErroGatewayPagamento("Nao conseguimos falar com o gateway de pagamento agora.") from exc
+
+        if resposta.status_code not in (200, 201):
+            logger.error("Pagar.me recusou o pedido (%s): %s", resposta.status_code, resposta.text[:500])
+            raise ErroGatewayPagamento(
+                "O gateway de pagamento recusou a criacao da cobranca.",
+                detalhes={"status_http": resposta.status_code},
+            )
+
+        dados = resposta.json()
+        transacao = _extrair_ultima_transacao(dados)
+        return ResultadoCobranca(
+            gateway="pagarme",
+            gateway_transaction_id=dados.get("id", ""),
+            status="pendente",
+            pix_copia_cola=transacao.get("qr_code"),
+            checkout_url=transacao.get("qr_code_url"),
+        )
+
+
+def _phones(celular: Optional[str]) -> Dict[str, Any]:
+    if not celular or len(celular) < 10:
+        return {}
+    return {
+        "mobile_phone": {
+            "country_code": "55",
+            "area_code": celular[:2],
+            "number": celular[2:],
+        }
+    }
+
+
+def _extrair_ultima_transacao(pedido: Dict[str, Any]) -> Dict[str, Any]:
+    charges = pedido.get("charges") or []
+    if not charges:
+        return {}
+    return charges[0].get("last_transaction") or {}

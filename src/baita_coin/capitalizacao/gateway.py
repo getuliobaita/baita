@@ -27,8 +27,15 @@ class ResultadoCobranca:
 class GatewayPagamentoAdapter(ABC):
     @abstractmethod
     def iniciar_cobranca(
-        self, *, compra_id: UUID, valor_reais: Decimal, metodo_pagamento: Dict[str, Any]
+        self,
+        *,
+        compra_id: UUID,
+        valor_reais: Decimal,
+        metodo_pagamento: Dict[str, Any],
+        cliente: Optional[Dict[str, Any]] = None,
     ) -> ResultadoCobranca:
+        """`cliente`: dados de quem compra ({nome, cpf, email, celular}) --
+        gateways reais (Pagar.me) exigem pelo menos nome + CPF."""
         ...
 
 
@@ -39,7 +46,12 @@ class MockGatewayPagamentoAdapter(GatewayPagamentoAdapter):
     viria do gateway real de forma assincrona."""
 
     def iniciar_cobranca(
-        self, *, compra_id: UUID, valor_reais: Decimal, metodo_pagamento: Dict[str, Any]
+        self,
+        *,
+        compra_id: UUID,
+        valor_reais: Decimal,
+        metodo_pagamento: Dict[str, Any],
+        cliente: Optional[Dict[str, Any]] = None,
     ) -> ResultadoCobranca:
         transaction_id = f"mock_{uuid4()}"
         centavos = int(valor_reais * 100)

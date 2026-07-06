@@ -195,6 +195,12 @@ def criar_compra(
             conta = wallet_repo.get_account(conn, payload.account_id)
             if conta is None:
                 raise ContaNaoEncontrada("account_id nao encontrado", detalhes={"account_id": str(payload.account_id)})
+            dados_cliente = {
+                "nome": conta.nome,
+                "cpf": conta.cpf,
+                "email": conta.email,
+                "celular": conta.celular,
+            }
 
             compra_id = uuid4()
             repo.insert_compra(conn, compra_id, payload.account_id, payload.quantidade_pacotes, valor_reais, payload.idempotency_key)
@@ -211,7 +217,10 @@ def criar_compra(
     # A chamada ao gateway e I/O externo -- roda fora da transacao que criou
     # a compra, pra nao segurar conexao/lock de banco esperando a rede.
     resultado_cobranca = gateway_adapter.iniciar_cobranca(
-        compra_id=compra_id, valor_reais=valor_reais, metodo_pagamento=payload.metodo_pagamento
+        compra_id=compra_id,
+        valor_reais=valor_reais,
+        metodo_pagamento=payload.metodo_pagamento,
+        cliente=dados_cliente,
     )
     with engine.begin() as conn:
         repo.atualizar_compra_gateway_info(

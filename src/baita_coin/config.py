@@ -46,5 +46,27 @@ class Settings(BaseSettings):
     # atras do proxy do Render sem configurar forwarded headers.
     public_base_url: str = "https://baita-coin-api.onrender.com"
 
+    # ------------------------------------------------------------------
+    # Gateway de pagamento: "mock" (padrao, dev/teste) ou "pagarme".
+    # Com "pagarme", PAGARME_SECRET_KEY e obrigatoria (sk_test_... no
+    # sandbox, sk_live_... em producao) e PAGARME_WEBHOOK_TOKEN protege o
+    # endpoint publico de webhook (configurar o mesmo token no dashboard
+    # do Pagar.me na URL do webhook).
+    # ------------------------------------------------------------------
+    gateway_provider: str = "mock"
+    pagarme_secret_key: Optional[str] = None
+    pagarme_webhook_token: Optional[str] = None
+
+    # ------------------------------------------------------------------
+    # Emissao de nota fiscal de servico (NFS-e): "none" (padrao) ou "nfeio".
+    # nfeio_city_service_code e o codigo do servico no municipio da empresa
+    # (vem do cadastro na prefeitura -- confirmar com o contador).
+    # ------------------------------------------------------------------
+    nfe_provider: str = "none"
+    nfeio_api_key: Optional[str] = None
+    nfeio_company_id: Optional[str] = None
+    nfeio_city_service_code: str = "0107"
+    nfeio_iss_rate: float = 5.0
+
 
 settings = Settings()

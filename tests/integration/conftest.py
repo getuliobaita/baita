@@ -29,6 +29,7 @@ _TABELAS_EM_ORDEM_DE_LIMPEZA = [
     "capitalizacao_titulos",
     "compras_capitalizacao",
     "nf_submissoes",
+    "notas_servico",
     "resgates",
     "catalogo_itens",
     "beneficios_usos",
@@ -133,6 +134,7 @@ def client(test_engine):
     from baita_coin.anuncios.routes import get_engine as get_anuncios_engine
     from baita_coin.beneficios.routes import get_engine as get_beneficios_engine
     from baita_coin.capitalizacao.routes import get_engine as get_capitalizacao_engine
+    from baita_coin.fiscal.routes import get_engine as get_fiscal_engine
     from baita_coin.main import create_app
     from baita_coin.notas_fiscais.routes import get_engine as get_notas_fiscais_engine
     from baita_coin.resgates.routes import get_engine as get_resgates_engine
@@ -146,5 +148,6 @@ def client(test_engine):
     app.dependency_overrides[get_beneficios_engine] = lambda: test_engine
     app.dependency_overrides[get_anuncios_engine] = lambda: test_engine
     app.dependency_overrides[get_admin_usuarios_engine] = lambda: test_engine
+    app.dependency_overrides[get_fiscal_engine] = lambda: test_engine
     with TestClient(app) as test_client:
         yield test_client
