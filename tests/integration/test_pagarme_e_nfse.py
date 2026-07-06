@@ -59,6 +59,35 @@ def test_webhook_pagarme_confirma_compra_e_emite_nfse_mock(client, criar_conta_a
     assert nota.provider_invoice_id.startswith("mock_nfse_")
 
 
+def test_webhook_pagarme_aceita_basic_auth_do_dashboard(client, criar_conta_ativa, monkeypatch):
+    """O dashboard do Pagar.me so oferece Basic auth -- a senha e o token."""
+    import base64
+
+    monkeypatch.setattr(settings, "pagarme_webhook_token", "tok_teste")
+    account_id = criar_conta_ativa()
+    compra_id = _criar_compra(client, account_id, "pgm_basic", pacotes=1)
+
+    credencial = base64.b64encode(b"baita:tok_teste").decode()
+    resp = client.post(
+        "/v1/webhooks/pagarme",
+        headers={"Authorization": f"Basic {credencial}"},
+        json={
+            "type": "order.paid",
+            "data": {"id": "or_basic", "amount": 2000, "metadata": {"compra_id": compra_id}},
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "confirmado"
+
+    senha_errada = base64.b64encode(b"baita:errada").decode()
+    negado = client.post(
+        "/v1/webhooks/pagarme",
+        headers={"Authorization": f"Basic {senha_errada}"},
+        json={"type": "order.paid", "data": {}},
+    )
+    assert negado.status_code == 401
+
+
 def test_webhook_pagarme_evento_irrelevante_e_ignorado(client, monkeypatch):
     monkeypatch.setattr(settings, "pagarme_webhook_token", "tok_teste")
     resp = client.post(

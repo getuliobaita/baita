@@ -79,21 +79,37 @@ def webhook_pagamento_endpoint(
     return resultado
 
 
+def _token_do_basic_auth(authorization: Optional[str]) -> Optional[str]:
+    """O dashboard do Pagar.me so oferece Basic auth (usuario/senha) no
+    webhook -- tratamos a SENHA como o token (usuario e livre)."""
+    import base64
+
+    if not authorization or not authorization.lower().startswith("basic "):
+        return None
+    try:
+        decodificado = base64.b64decode(authorization.split(" ", 1)[1]).decode()
+        return decodificado.split(":", 1)[1] if ":" in decodificado else None
+    except Exception:  # noqa: BLE001 -- header malformado = sem token
+        return None
+
+
 @router.post("/v1/webhooks/pagarme")
 def webhook_pagarme_endpoint(
     payload: Dict[str, Any],
     background_tasks: BackgroundTasks,
     engine: Engine = Depends(get_engine),
     x_webhook_token: Optional[str] = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
 ):
     """Recebe as notificacoes do Pagar.me e traduz pro fluxo interno.
 
-    Seguranca: exige o header X-Webhook-Token igual ao PAGARME_WEBHOOK_TOKEN
-    do ambiente (configurar o mesmo valor como header customizado do webhook
-    no dashboard do Pagar.me). Sem token configurado no servidor, o endpoint
-    fica desativado (404-like 401), nunca aberto por padrao.
+    Seguranca: PAGARME_WEBHOOK_TOKEN do ambiente precisa bater com o header
+    X-Webhook-Token OU com a senha do Basic auth ("Habilitar autenticacao"
+    do dashboard do Pagar.me -- usuario livre, senha = token). Sem token
+    configurado no servidor, o endpoint fica fechado, nunca aberto por padrao.
     """
-    if not settings.pagarme_webhook_token or x_webhook_token != settings.pagarme_webhook_token:
+    token_recebido = x_webhook_token or _token_do_basic_auth(authorization)
+    if not settings.pagarme_webhook_token or token_recebido != settings.pagarme_webhook_token:
         return JSONResponse(
             status_code=401,
             content={"erro": {"codigo": "NAO_AUTORIZADO", "mensagem": "Token de webhook invalido.", "detalhes": {}}},
