@@ -64,10 +64,18 @@ def test_prioridade_maior_vem_primeiro(client):
     assert [a["titulo"] for a in resp] == ["Alta", "Baixa"]
 
 
-def test_slot_invalido_e_rejeitado(client):
+def test_slot_novo_e_aceito_sem_deploy(client):
+    """Slots sao livres: um espaco novo (ex: popup_home) nasce cadastrando o
+    anuncio + colocando o AdSlot no app, sem migration."""
+    criado = _criar_anuncio(client, titulo="Popup de boas-vindas", slot="popup_home")
+    listado = client.get("/v1/anuncios", params={"slot": "popup_home"}).json()
+    assert [a["anuncio_id"] for a in listado] == [criado["anuncio_id"]]
+
+
+def test_slot_com_formato_invalido_e_rejeitado(client):
     resp = client.post(
         "/v1/admin/anuncios",
-        json={"titulo": "X", "slot": "slot_inexistente", "imagem_url": "https://x.com/a.png"},
+        json={"titulo": "X", "slot": "Slot Com Espaço!", "imagem_url": "https://x.com/a.png"},
     )
     assert resp.status_code == 422
 
