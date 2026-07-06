@@ -97,11 +97,32 @@ class PagarmeGatewayAdapter(GatewayPagamentoAdapter):
 
         dados = resposta.json()
         transacao = _extrair_ultima_transacao(dados)
+        pix_copia_cola = transacao.get("qr_code")
+
+        if not pix_copia_cola:
+            # Pedido aceito mas sem PIX na resposta = a cobranca falhou do
+            # lado do Pagar.me (ex: PIX nao habilitado na conta). Expor o
+            # motivo real em vez de devolver uma tela de pagamento vazia.
+            charges = dados.get("charges") or [{}]
+            detalhes = {
+                "order_id": dados.get("id"),
+                "order_status": dados.get("status"),
+                "charge_status": charges[0].get("status"),
+                "transacao_status": transacao.get("status"),
+                "motivo_gateway": transacao.get("acquirer_message")
+                or (transacao.get("gateway_response") or {}).get("errors"),
+            }
+            logger.error("Pagar.me criou o pedido mas nao devolveu PIX: %s | body=%s", detalhes, str(dados)[:800])
+            raise ErroGatewayPagamento(
+                "O gateway criou o pedido mas nao gerou o PIX -- verifique se o PIX esta habilitado na conta Pagar.me.",
+                detalhes=detalhes,
+            )
+
         return ResultadoCobranca(
             gateway="pagarme",
             gateway_transaction_id=dados.get("id", ""),
             status="pendente",
-            pix_copia_cola=transacao.get("qr_code"),
+            pix_copia_cola=pix_copia_cola,
             checkout_url=transacao.get("qr_code_url"),
         )
 
