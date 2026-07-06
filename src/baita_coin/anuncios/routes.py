@@ -6,7 +6,11 @@ from fastapi.responses import Response
 from sqlalchemy.engine import Engine
 
 from baita_coin.anuncios import service
-from baita_coin.anuncios.schemas import AnuncioResponse, AtualizarAnuncioRequest, CriarAnuncioRequest
+from baita_coin.anuncios.schemas import (
+    AnuncioResponse,
+    AtualizarAnuncioRequest,
+    CriarAnuncioRequest,
+)
 from baita_coin.db import engine as default_engine
 
 router = APIRouter()

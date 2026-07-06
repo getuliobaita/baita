@@ -117,7 +117,7 @@ def test_upload_de_imagem_alimenta_anuncio_completo(client):
         files={"arquivo": ("banner.png", _PNG_1X1, "image/png")},
     ).json()
 
-    anuncio = _criar_anuncio(client, titulo="Banner com upload", imagem_url=upload["imagem_url"])
+    _criar_anuncio(client, titulo="Banner com upload", imagem_url=upload["imagem_url"])
     listado = client.get("/v1/anuncios", params={"slot": "banner_home"}).json()
     assert any(a["imagem_url"] == upload["imagem_url"] for a in listado)
 

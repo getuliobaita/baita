@@ -20,6 +20,7 @@ dependencies = [
 dev = [
     "pytest>=7.4",
     "httpx>=0.26",
+    "ruff>=0.4",
 ]
 
 [tool.pytest.ini_options]
@@ -32,3 +33,11 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+line-length = 110
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# F: erros reais (imports/vars mortas), E9: erros de sintaxe, I: ordem de imports
+select = ["F", "E9", "I"]

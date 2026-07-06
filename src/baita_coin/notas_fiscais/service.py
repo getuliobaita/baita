@@ -10,8 +10,7 @@ so mover a chamada de `processar_submissao` pra um worker/consumer -- a
 funcao em si ja e independente de framework web.
 """
 from datetime import datetime, timedelta, timezone
-from decimal import ROUND_HALF_UP, Decimal
-from typing import Optional
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 from fastapi import BackgroundTasks
@@ -25,7 +24,10 @@ from baita_coin.notas_fiscais.constants import (
     STATUS_REVISAO_MANUAL,
     TIPO_ENVIO_QRCODE,
 )
-from baita_coin.notas_fiscais.errors import ParceiroNaoEncontrado, SubmissaoNaoEncontrada
+from baita_coin.notas_fiscais.errors import (
+    ParceiroNaoEncontrado,
+    SubmissaoNaoEncontrada,
+)
 from baita_coin.notas_fiscais.ocr_adapter import OcrAdapter
 from baita_coin.notas_fiscais.qrcode import (
     extrair_chave_do_qr_payload,
@@ -42,6 +44,8 @@ from baita_coin.notas_fiscais.schemas import (
     SubmissaoDetalheResponse,
 )
 from baita_coin.notas_fiscais.sefaz_adapter import SefazAdapter
+from baita_coin.shared.dinheiro import arredondar_centavos
+from baita_coin.shared.postgres import constraint_violada
 from baita_coin.wallet import repository as wallet_repo
 from baita_coin.wallet import service as wallet_service
 from baita_coin.wallet.constants import TipoEvento
@@ -49,14 +53,6 @@ from baita_coin.wallet.errors import ContaNaoEncontrada, IdempotencyKeyConflitan
 
 _CONSTRAINT_SUBMISSAO_IDEMPOTENCY_KEY = "nf_submissoes_idempotency_key_key"
 
-
-def _quantizar(valor: Decimal) -> Decimal:
-    return valor.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-
-def _constraint_violada(exc: IntegrityError) -> Optional[str]:
-    diag = getattr(exc.orig, "diag", None)
-    return getattr(diag, "constraint_name", None) if diag else None
 
 
 def _resolver_chave_e_status_inicial(payload: SubmeterNotaFiscalRequest, ocr_adapter: OcrAdapter):
@@ -127,7 +123,7 @@ def submeter_nota_fiscal(
                 motivo,
             )
     except IntegrityError as exc:
-        if _constraint_violada(exc) != _CONSTRAINT_SUBMISSAO_IDEMPOTENCY_KEY:
+        if constraint_violada(exc) != _CONSTRAINT_SUBMISSAO_IDEMPOTENCY_KEY:
             raise
         with engine.begin() as conn:
             existing = repo.get_submissao_by_idempotency_key(conn, payload.idempotency_key)
@@ -216,7 +212,7 @@ def processar_submissao(engine: Engine, sefaz_adapter: SefazAdapter, submissao_i
             )
             return
 
-        coins = _quantizar(resultado.valor_total * Decimal(regra.percentual_cashback) / Decimal("100"))
+        coins = arredondar_centavos(resultado.valor_total * Decimal(regra.percentual_cashback) / Decimal("100"))
         if regra.teto_por_nota is not None:
             coins = min(coins, Decimal(regra.teto_por_nota))
 

@@ -6,13 +6,15 @@ junto com o consumo de lotes correspondente, nunca um sem o outro.
 """
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy.engine import Engine, Row
 from sqlalchemy.exc import IntegrityError
 
 from baita_coin.config import settings
+from baita_coin.notificacoes.whatsapp import MensagemWhatsApp, WhatsAppAdapter
+from baita_coin.shared.postgres import constraint_violada
 from baita_coin.wallet import repository as repo
 from baita_coin.wallet.constants import (
     CREDITO_SIMPLES,
@@ -22,7 +24,6 @@ from baita_coin.wallet.constants import (
     STATUS_LOTE_ATIVO,
     TipoEvento,
 )
-from baita_coin.notificacoes.whatsapp import MensagemWhatsApp, WhatsAppAdapter
 from baita_coin.wallet.errors import (
     ContaBloqueada,
     ContaNaoEncontrada,
@@ -57,10 +58,6 @@ def _quantizar(valor: Decimal, campo: str) -> Decimal:
         raise EventoInvalido(f"{campo} deve ter no maximo 2 casas decimais")
     return quantizado
 
-
-def _constraint_violada(exc: IntegrityError) -> Optional[str]:
-    diag = getattr(exc.orig, "diag", None)
-    return getattr(diag, "constraint_name", None) if diag else None
 
 
 def _account_row_to_response(row: Row, senha_enviada_whatsapp: bool = False) -> CriarContaResponse:
@@ -159,7 +156,7 @@ def criar_conta(
         # transacao ja abortada pelo Postgres ficaria em estado inconsistente
         # para o commit implicito do context manager. Deixando propagar ate
         # aqui, o rollback automatico do `engine.begin()` roda primeiro.
-        constraint = _constraint_violada(exc)
+        constraint = constraint_violada(exc)
         if constraint == _CONSTRAINT_EMAIL:
             raise EventoInvalido("este e-mail ja esta em uso em outra conta") from exc
         if constraint != _CONSTRAINT_CPF:
@@ -363,7 +360,7 @@ def _tentar_registrar(engine: Engine, payload: EventoRequest) -> Optional[Evento
             return EventoResponse(event_id=evento.event_id, status="registrado", saldo_apos=saldo)
 
     except IntegrityError as exc:
-        if _constraint_violada(exc) == _CONSTRAINT_IDEMPOTENCY_KEY:
+        if constraint_violada(exc) == _CONSTRAINT_IDEMPOTENCY_KEY:
             return None
         raise
 

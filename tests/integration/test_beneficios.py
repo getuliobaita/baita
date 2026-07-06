@@ -1,4 +1,3 @@
-from decimal import Decimal
 
 
 def _creditar(client, account_id, coins, idem):

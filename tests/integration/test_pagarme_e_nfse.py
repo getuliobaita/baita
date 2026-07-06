@@ -161,7 +161,6 @@ def test_adapter_pagarme_monta_pedido_e_extrai_pix(monkeypatch):
 
     monkeypatch.setattr(gp.requests, "post", post_fake)
 
-    from decimal import Decimal
     from uuid import uuid4
 
     adapter = gp.PagarmeGatewayAdapter("sk_test_fake")
@@ -186,7 +185,6 @@ def test_adapter_pagarme_exige_cpf(monkeypatch):
     from baita_coin.capitalizacao import gateway_pagarme as gp
 
     adapter = gp.PagarmeGatewayAdapter("sk_test_fake")
-    from decimal import Decimal
     from uuid import uuid4
 
     import pytest

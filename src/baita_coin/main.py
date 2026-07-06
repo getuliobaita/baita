@@ -9,8 +9,8 @@ from baita_coin.admin_usuarios.routes import router as admin_usuarios_router
 from baita_coin.anuncios.routes import router as anuncios_router
 from baita_coin.beneficios.routes import router as beneficios_router
 from baita_coin.capitalizacao.routes import router as capitalizacao_router
-from baita_coin.fiscal.routes import router as fiscal_router
 from baita_coin.config import settings
+from baita_coin.fiscal.routes import router as fiscal_router
 from baita_coin.notas_fiscais.routes import router as notas_fiscais_router
 from baita_coin.resgates.routes import router as resgates_router
 from baita_coin.wallet.errors import DomainError

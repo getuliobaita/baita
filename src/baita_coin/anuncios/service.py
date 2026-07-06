@@ -7,8 +7,16 @@ from uuid import UUID, uuid4
 from sqlalchemy.engine import Engine, Row
 
 from baita_coin.anuncios import repository as repo
-from baita_coin.anuncios.errors import AnuncioNaoEncontrado, ImagemInvalida, ImagemNaoEncontrada
-from baita_coin.anuncios.schemas import AnuncioResponse, AtualizarAnuncioRequest, CriarAnuncioRequest
+from baita_coin.anuncios.errors import (
+    AnuncioNaoEncontrado,
+    ImagemInvalida,
+    ImagemNaoEncontrada,
+)
+from baita_coin.anuncios.schemas import (
+    AnuncioResponse,
+    AtualizarAnuncioRequest,
+    CriarAnuncioRequest,
+)
 from baita_coin.config import settings
 
 CONTENT_TYPES_PERMITIDOS = frozenset({"image/jpeg", "image/png", "image/webp", "image/gif"})

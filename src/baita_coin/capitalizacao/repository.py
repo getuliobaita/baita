@@ -1,7 +1,8 @@
 """Acesso a dados do motor de capitalizacao -- so SQL, sem regra de negocio."""
+import json
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, List, Optional
+from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy import text
@@ -36,8 +37,6 @@ def insert_plano(
     periodicidade: str = "unica",
     vantagens: Optional[list] = None,
 ) -> Row:
-    import json
-
     return conn.execute(
         text(
             """
@@ -77,8 +76,6 @@ def atualizar_plano(
     periodicidade: Optional[str] = None,
     vantagens: Optional[list] = None,
 ) -> Row:
-    import json
-
     return conn.execute(
         text(
             """

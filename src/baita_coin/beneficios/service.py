@@ -24,6 +24,7 @@ from baita_coin.beneficios.schemas import (
     UsarBeneficioRequest,
     UsarBeneficioResponse,
 )
+from baita_coin.shared.postgres import constraint_violada
 from baita_coin.wallet import repository as wallet_repo
 from baita_coin.wallet import service as wallet_service
 from baita_coin.wallet.constants import TipoEvento
@@ -31,10 +32,6 @@ from baita_coin.wallet.errors import ContaNaoEncontrada, IdempotencyKeyConflitan
 
 _CONSTRAINT_USO_IDEMPOTENCY_KEY = "beneficios_usos_idempotency_key_key"
 
-
-def _constraint_violada(exc: IntegrityError) -> Optional[str]:
-    diag = getattr(exc.orig, "diag", None)
-    return getattr(diag, "constraint_name", None) if diag else None
 
 
 def _beneficio_para_response(row: Row) -> BeneficioResponse:
@@ -190,7 +187,7 @@ def usar_beneficio(
             )
             return _uso_para_response(conn, uso)
     except IntegrityError as exc:
-        if _constraint_violada(exc) != _CONSTRAINT_USO_IDEMPOTENCY_KEY:
+        if constraint_violada(exc) != _CONSTRAINT_USO_IDEMPOTENCY_KEY:
             raise
         with engine.begin() as conn:
             existing = repo.get_uso_by_idempotency_key(conn, payload.idempotency_key)

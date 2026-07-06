@@ -8,7 +8,7 @@ dentro da MESMA transacao que grava titulo/numero da sorte/status da compra
 dobro nem deixa titulo/numero orfao.
 """
 from datetime import datetime, timezone
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID, uuid4
 
@@ -32,7 +32,10 @@ from baita_coin.capitalizacao.errors import (
     ValorConfirmadoDivergente,
 )
 from baita_coin.capitalizacao.gateway import GatewayPagamentoAdapter
-from baita_coin.capitalizacao.motor_conversao import Campanha, calcular_coins_capitalizacao
+from baita_coin.capitalizacao.motor_conversao import (
+    Campanha,
+    calcular_coins_capitalizacao,
+)
 from baita_coin.capitalizacao.schemas import (
     AbrirSorteioRequest,
     AtualizarCampanhaRequest,
@@ -57,6 +60,8 @@ from baita_coin.capitalizacao.schemas import (
     WebhookPagamentoRequest,
     WebhookPagamentoResponse,
 )
+from baita_coin.shared.dinheiro import arredondar_centavos
+from baita_coin.shared.postgres import constraint_violada
 from baita_coin.wallet import repository as wallet_repo
 from baita_coin.wallet import service as wallet_service
 from baita_coin.wallet.constants import TipoEvento
@@ -68,14 +73,6 @@ _CONSTRAINT_COMPRA_IDEMPOTENCY_KEY = "compras_capitalizacao_idempotency_key_key"
 # SUSEP -- NAO usar em producao. Ver aviso no README de decisoes da Fase 2.
 PLANO_ID_PLACEHOLDER = "PLANO_PLACEHOLDER_FASE2"
 
-
-def _quantizar(valor: Decimal) -> Decimal:
-    return valor.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-
-def _constraint_violada(exc: IntegrityError) -> Optional[str]:
-    diag = getattr(exc.orig, "diag", None)
-    return getattr(diag, "constraint_name", None) if diag else None
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +181,7 @@ def _validar_compra_payload_compativel(existing: Row, payload: CriarCompraReques
 def criar_compra(
     engine: Engine, gateway_adapter: GatewayPagamentoAdapter, payload: CriarCompraRequest
 ) -> CriarCompraResponse:
-    valor_reais = _quantizar(VALOR_PACOTE_REAIS * payload.quantidade_pacotes)
+    valor_reais = arredondar_centavos(VALOR_PACOTE_REAIS * payload.quantidade_pacotes)
 
     compra_id: Optional[UUID] = None
     try:
@@ -207,7 +204,7 @@ def criar_compra(
             compra_id = uuid4()
             repo.insert_compra(conn, compra_id, payload.account_id, payload.quantidade_pacotes, valor_reais, payload.idempotency_key)
     except IntegrityError as exc:
-        if _constraint_violada(exc) != _CONSTRAINT_COMPRA_IDEMPOTENCY_KEY:
+        if constraint_violada(exc) != _CONSTRAINT_COMPRA_IDEMPOTENCY_KEY:
             raise
         with engine.begin() as conn:
             existing = repo.get_compra_by_idempotency_key(conn, payload.idempotency_key)
@@ -251,7 +248,7 @@ def _plano_para_response(row: Row) -> PlanoResponse:
         plano_id=row.plano_id,
         nome=row.nome,
         quantidade_pacotes=row.quantidade_pacotes,
-        valor_reais=_quantizar(VALOR_PACOTE_REAIS * row.quantidade_pacotes),
+        valor_reais=arredondar_centavos(VALOR_PACOTE_REAIS * row.quantidade_pacotes),
         descricao=row.descricao,
         destaque=row.destaque,
         ordem=row.ordem,
@@ -369,7 +366,7 @@ def consultar_compra(engine: Engine, compra_id: UUID) -> CompraDetalheResponse:
 
 
 def processar_webhook_pagamento(engine: Engine, payload: WebhookPagamentoRequest) -> WebhookPagamentoResponse:
-    valor_confirmado = _quantizar(payload.valor_confirmado)
+    valor_confirmado = arredondar_centavos(payload.valor_confirmado)
 
     with engine.begin() as conn:
         # Lock na propria linha da compra: serializa qualquer redelivery

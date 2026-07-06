@@ -13,7 +13,12 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine, Row
 
 from baita_coin.config import settings
-from baita_coin.fiscal.adapter import DadosNota, MockNfeAdapter, NfeAdapter, NfeioAdapter
+from baita_coin.fiscal.adapter import (
+    DadosNota,
+    MockNfeAdapter,
+    NfeAdapter,
+    NfeioAdapter,
+)
 
 logger = logging.getLogger("baita.nfe")
 

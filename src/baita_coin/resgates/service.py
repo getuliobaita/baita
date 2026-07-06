@@ -13,7 +13,6 @@ separadas:
    deixar a conta negativa.
 """
 from decimal import Decimal
-from typing import Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy.engine import Engine, Row
@@ -30,17 +29,18 @@ from baita_coin.resgates.schemas import (
     CriarResgateResponse,
     ResgateDetalheResponse,
 )
+from baita_coin.shared.postgres import constraint_violada
 from baita_coin.wallet import repository as wallet_repo
 from baita_coin.wallet import service as wallet_service
 from baita_coin.wallet.constants import TipoEvento
-from baita_coin.wallet.errors import ContaNaoEncontrada, IdempotencyKeyConflitante, SaldoInsuficiente
+from baita_coin.wallet.errors import (
+    ContaNaoEncontrada,
+    IdempotencyKeyConflitante,
+    SaldoInsuficiente,
+)
 
 _CONSTRAINT_RESGATE_IDEMPOTENCY_KEY = "resgates_idempotency_key_key"
 
-
-def _constraint_violada(exc: IntegrityError) -> Optional[str]:
-    diag = getattr(exc.orig, "diag", None)
-    return getattr(diag, "constraint_name", None) if diag else None
 
 
 def _resposta_criacao(resgate: Row) -> CriarResgateResponse:
@@ -103,7 +103,7 @@ def criar_resgate(
                 )
 
             resgate_id = uuid4()
-            resgate = repo.insert_resgate(
+            repo.insert_resgate(
                 conn,
                 resgate_id,
                 payload.account_id,
@@ -113,7 +113,7 @@ def criar_resgate(
                 item.fornecedor,
             )
     except IntegrityError as exc:
-        if _constraint_violada(exc) != _CONSTRAINT_RESGATE_IDEMPOTENCY_KEY:
+        if constraint_violada(exc) != _CONSTRAINT_RESGATE_IDEMPOTENCY_KEY:
             raise
         with engine.begin() as conn:
             existing = repo.get_resgate_by_idempotency_key(conn, payload.idempotency_key)
@@ -189,7 +189,7 @@ def consultar_resgate(
 
             event_id = uuid4()
             coins_reservados = Decimal(resgate_lock.coins_reservados)
-            evento = wallet_repo.insert_ledger_event(
+            wallet_repo.insert_ledger_event(
                 conn,
                 event_id,
                 resgate_lock.account_id,

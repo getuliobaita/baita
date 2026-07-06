@@ -1,3 +1,4 @@
+import base64
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -7,9 +8,11 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.engine import Engine
 
 from baita_coin.capitalizacao import service
-from baita_coin.capitalizacao.gateway import GatewayPagamentoAdapter, MockGatewayPagamentoAdapter
+from baita_coin.capitalizacao.gateway import (
+    GatewayPagamentoAdapter,
+    MockGatewayPagamentoAdapter,
+)
 from baita_coin.capitalizacao.gateway_pagarme import PagarmeGatewayAdapter
-from baita_coin.config import settings
 from baita_coin.capitalizacao.schemas import (
     AbrirSorteioRequest,
     AtualizarCampanhaRequest,
@@ -28,6 +31,7 @@ from baita_coin.capitalizacao.schemas import (
     WebhookPagamentoRequest,
     WebhookPagamentoResponse,
 )
+from baita_coin.config import settings
 from baita_coin.db import engine as default_engine
 
 router = APIRouter()
@@ -83,8 +87,6 @@ def webhook_pagamento_endpoint(
 def _token_do_basic_auth(authorization: Optional[str]) -> Optional[str]:
     """O dashboard do Pagar.me so oferece Basic auth (usuario/senha) no
     webhook -- tratamos a SENHA como o token (usuario e livre)."""
-    import base64
-
     if not authorization or not authorization.lower().startswith("basic "):
         return None
     try:
