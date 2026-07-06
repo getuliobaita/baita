@@ -130,7 +130,18 @@ def criar_conta(
         with engine.begin() as conn:
             existing = repo.get_account_by_cpf(conn, payload.cpf)
             if existing is not None:
-                return _account_row_to_response(existing), False
+                # Conta ja existe: completa o que estiver faltando (nunca
+                # sobrescreve dado gravado). A senha temporaria so vale se a
+                # conta ainda nao tinha senha.
+                senha_aplicada = existing.senha_hash is None and dados_cadastro.get("senha_hash")
+                row = repo.completar_cadastro(conn, existing.account_id, dados_cadastro)
+                enviada = False
+                if senha_temporaria and senha_aplicada and row.celular and whatsapp is not None:
+                    whatsapp.enviar(
+                        MensagemWhatsApp(celular=row.celular, texto=_mensagem_senha(row.nome, senha_temporaria))
+                    )
+                    enviada = True
+                return _account_row_to_response(row, senha_enviada_whatsapp=enviada), False
             row = repo.create_account(conn, uuid4(), payload.cpf, "ativa", dados_cadastro)
 
         # Envio fora da transacao: se o WhatsApp falhar, a conta ja existe e

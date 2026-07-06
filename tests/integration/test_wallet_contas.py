@@ -80,3 +80,35 @@ def test_data_nascimento_no_futuro_e_rejeitada(client):
         "/v1/wallet/contas", json={"cpf": "66677788899", "data_nascimento": "2099-01-01"}
     )
     assert resp.status_code == 422
+
+
+def test_repostar_cpf_existente_completa_cadastro_sem_sobrescrever(client):
+    # 1a chamada: so CPF (conta rala)
+    primeira = client.post("/v1/wallet/contas", json={"cpf": "77788899900"})
+    assert primeira.status_code == 201
+    assert primeira.json()["cadastro_completo"] is False
+
+    # 2a chamada: mesmo CPF com dados completos -> preenche o que faltava
+    segunda = client.post(
+        "/v1/wallet/contas",
+        json={
+            "cpf": "77788899900",
+            "nome": "Completa Depois",
+            "celular": "51988887777",
+            "data_nascimento": "1985-03-20",
+            "cep": "90010150",
+            "numero": "55",
+        },
+    )
+    assert segunda.status_code == 200  # nao criou de novo
+    body = segunda.json()
+    assert body["account_id"] == primeira.json()["account_id"]
+    assert body["nome"] == "Completa Depois"
+    assert body["cadastro_completo"] is True
+    assert body["senha_enviada_whatsapp"] is True  # nao tinha senha, ganhou temporaria
+
+    # 3a chamada com nome diferente NAO sobrescreve o ja gravado
+    terceira = client.post(
+        "/v1/wallet/contas", json={"cpf": "77788899900", "nome": "Tentando Trocar"}
+    )
+    assert terceira.json()["nome"] == "Completa Depois"

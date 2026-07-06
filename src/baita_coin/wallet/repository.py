@@ -29,6 +29,47 @@ def get_account_for_update(conn: Connection, account_id: UUID) -> Optional[Row]:
     ).first()
 
 
+def completar_cadastro(conn: Connection, account_id: UUID, dados: dict) -> Row:
+    """Preenche APENAS campos ainda nulos (COALESCE com o valor existente
+    primeiro) -- completar cadastro nunca sobrescreve dado ja gravado."""
+    return conn.execute(
+        text(
+            """
+            UPDATE wallet_accounts
+            SET nome = COALESCE(nome, :nome),
+                email = COALESCE(email, :email),
+                senha_hash = COALESCE(senha_hash, :senha_hash),
+                celular = COALESCE(celular, :celular),
+                data_nascimento = COALESCE(data_nascimento, :data_nascimento),
+                cep = COALESCE(cep, :cep),
+                logradouro = COALESCE(logradouro, :logradouro),
+                numero = COALESCE(numero, :numero),
+                complemento = COALESCE(complemento, :complemento),
+                bairro = COALESCE(bairro, :bairro),
+                cidade = COALESCE(cidade, :cidade),
+                uf = COALESCE(uf, :uf)
+            WHERE account_id = :account_id
+            RETURNING *
+            """
+        ),
+        {
+            "account_id": str(account_id),
+            "nome": dados.get("nome"),
+            "email": dados.get("email"),
+            "senha_hash": dados.get("senha_hash"),
+            "celular": dados.get("celular"),
+            "data_nascimento": dados.get("data_nascimento"),
+            "cep": dados.get("cep"),
+            "logradouro": dados.get("logradouro"),
+            "numero": dados.get("numero"),
+            "complemento": dados.get("complemento"),
+            "bairro": dados.get("bairro"),
+            "cidade": dados.get("cidade"),
+            "uf": dados.get("uf"),
+        },
+    ).first()
+
+
 def get_account_by_email(conn: Connection, email: str) -> Optional[Row]:
     return conn.execute(
         text("SELECT * FROM wallet_accounts WHERE email = :email"), {"email": email}
