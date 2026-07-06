@@ -25,7 +25,7 @@ TEST_DATABASE_URL = os.environ.get(
 # todo teste de compra depende para gerar numeros da sorte.
 _TABELAS_EM_ORDEM_DE_LIMPEZA = [
     "consumo_lotes",
-    "numeros_sorte_faixas",
+    "numeros_sorte",
     "capitalizacao_titulos",
     "compras_capitalizacao",
     "nf_submissoes",

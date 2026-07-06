@@ -365,34 +365,34 @@ def insert_sorteio(conn: Connection, sorteio_id: UUID, data_sorteio: datetime) -
     ).first()
 
 
-def insert_numero_sorte_faixa(
+def insert_numeros_sorte(
     conn: Connection,
-    faixa_id: UUID,
     account_id: UUID,
     event_id: UUID,
     sorteio_id: UUID,
     numero_inicial: int,
     numero_final: int,
-) -> Row:
-    return conn.execute(
+) -> List[int]:
+    """Insere UM REGISTRO POR NUMERO no intervalo reservado (individualizado
+    por decisao do usuario) e devolve a lista de numeros emitidos."""
+    rows = conn.execute(
         text(
             """
-            INSERT INTO numeros_sorte_faixas
-                (faixa_id, account_id, event_id, sorteio_id, numero_inicial, numero_final)
-            VALUES
-                (:faixa_id, :account_id, :event_id, :sorteio_id, :numero_inicial, :numero_final)
-            RETURNING *
+            INSERT INTO numeros_sorte (account_id, event_id, sorteio_id, numero)
+            SELECT :account_id, :event_id, :sorteio_id, gs.numero
+            FROM generate_series(CAST(:numero_inicial AS bigint), CAST(:numero_final AS bigint)) AS gs(numero)
+            RETURNING numero
             """
         ),
         {
-            "faixa_id": str(faixa_id),
             "account_id": str(account_id),
             "event_id": str(event_id),
             "sorteio_id": str(sorteio_id),
             "numero_inicial": numero_inicial,
             "numero_final": numero_final,
         },
-    ).first()
+    ).all()
+    return [r.numero for r in rows]
 
 
 def insert_capitalizacao_titulo(
@@ -421,16 +421,24 @@ def insert_capitalizacao_titulo(
     ).first()
 
 
-def get_numeros_sorte_por_sorteio(conn: Connection, account_id: UUID, sorteio_id: UUID) -> List[Row]:
+def get_numeros_sorte_da_conta(
+    conn: Connection, account_id: UUID, sorteio_id: Optional[UUID] = None
+) -> List[Row]:
+    filtro_sorteio = "AND n.sorteio_id = :sorteio_id" if sorteio_id else ""
+    params = {"account_id": str(account_id)}
+    if sorteio_id:
+        params["sorteio_id"] = str(sorteio_id)
     return conn.execute(
         text(
-            """
-            SELECT * FROM numeros_sorte_faixas
-            WHERE account_id = :account_id AND sorteio_id = :sorteio_id
-            ORDER BY numero_inicial ASC
+            f"""
+            SELECT n.numero, n.status, n.sorteio_id, n.criado_em, s.data_sorteio, s.status AS sorteio_status
+            FROM numeros_sorte n
+            JOIN sorteios s ON s.sorteio_id = n.sorteio_id
+            WHERE n.account_id = :account_id {filtro_sorteio}
+            ORDER BY n.numero ASC
             """
         ),
-        {"account_id": str(account_id), "sorteio_id": str(sorteio_id)},
+        params,
     ).all()
 
 
@@ -447,8 +455,10 @@ def get_titulo_por_evento(conn: Connection, event_id: UUID) -> Optional[Row]:
     ).first()
 
 
-def get_numero_sorte_faixa_por_evento(conn: Connection, event_id: UUID) -> Optional[Row]:
+def get_numeros_sorte_por_evento(conn: Connection, event_id: UUID) -> List[Row]:
     return conn.execute(
-        text("SELECT * FROM numeros_sorte_faixas WHERE event_id = :event_id"),
+        text(
+            "SELECT numero, sorteio_id FROM numeros_sorte WHERE event_id = :event_id ORDER BY numero ASC"
+        ),
         {"event_id": str(event_id)},
-    ).first()
+    ).all()

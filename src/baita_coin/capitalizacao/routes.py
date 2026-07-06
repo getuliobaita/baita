@@ -21,6 +21,7 @@ from baita_coin.capitalizacao.schemas import (
     CriarCompraRequest,
     CriarCompraResponse,
     CriarPlanoRequest,
+    MeusNumerosResponse,
     PlanoResponse,
     RelatorioCompradoresResponse,
     SorteioResponse,
@@ -165,6 +166,14 @@ def atualizar_campanha_endpoint(
     campanha_id: UUID, payload: AtualizarCampanhaRequest, engine: Engine = Depends(get_engine)
 ) -> CampanhaResponse:
     return service.atualizar_campanha(engine, campanha_id, payload)
+
+
+@router.get("/v1/wallet/{account_id}/numeros-sorte", response_model=MeusNumerosResponse)
+def listar_meus_numeros_endpoint(
+    account_id: UUID, sorteio_id: Optional[UUID] = None, engine: Engine = Depends(get_engine)
+) -> MeusNumerosResponse:
+    """Numeros da sorte individuais da conta, agrupaveis por sorteio no app."""
+    return service.listar_meus_numeros(engine, account_id, sorteio_id)
 
 
 @router.post("/v1/internal/sorteios", response_model=SorteioResponse, status_code=201)

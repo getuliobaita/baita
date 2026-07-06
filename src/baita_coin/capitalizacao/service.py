@@ -47,6 +47,8 @@ from baita_coin.capitalizacao.schemas import (
     CriarCompraResponse,
     CriarPlanoRequest,
     DadosPagamento,
+    MeusNumerosResponse,
+    NumeroSorteItem,
     NumerosSorteResumo,
     PlanoResponse,
     RegraAplicada,
@@ -320,14 +322,37 @@ def _montar_detalhe(conn, compra: Row) -> CompraDetalheResponse:
     if titulo is not None:
         resposta.numero_titulo_susep = titulo.numero_titulo_susep
 
-    faixa_numeros = repo.get_numero_sorte_faixa_por_evento(conn, compra.event_id)
-    if faixa_numeros is not None:
+    numeros = repo.get_numeros_sorte_por_evento(conn, compra.event_id)
+    if numeros:
         resposta.numeros_sorte = NumerosSorteResumo(
-            sorteio_id=faixa_numeros.sorteio_id,
-            numero_inicial=faixa_numeros.numero_inicial,
-            numero_final=faixa_numeros.numero_final,
+            sorteio_id=numeros[0].sorteio_id,
+            numeros=[n.numero for n in numeros],
+            total=len(numeros),
         )
     return resposta
+
+
+def listar_meus_numeros(
+    engine: Engine, account_id: UUID, sorteio_id: Optional[UUID] = None
+) -> MeusNumerosResponse:
+    with engine.begin() as conn:
+        conta = wallet_repo.get_account(conn, account_id)
+        if conta is None:
+            raise ContaNaoEncontrada("account_id nao encontrado", detalhes={"account_id": str(account_id)})
+        rows = repo.get_numeros_sorte_da_conta(conn, account_id, sorteio_id)
+        return MeusNumerosResponse(
+            numeros=[
+                NumeroSorteItem(
+                    numero=r.numero,
+                    status=r.status,
+                    sorteio_id=r.sorteio_id,
+                    data_sorteio=r.data_sorteio,
+                    sorteio_status=r.sorteio_status,
+                )
+                for r in rows
+            ],
+            total=len(rows),
+        )
 
 
 def consultar_compra(engine: Engine, compra_id: UUID) -> CompraDetalheResponse:
@@ -420,9 +445,11 @@ def processar_webhook_pagamento(engine: Engine, payload: WebhookPagamentoRequest
             sorteio = repo.get_sorteio_aberto_for_update(conn)
             if sorteio is None:
                 raise NenhumSorteioAberto("nao ha sorteio aberto pra atribuir numeros da sorte")
+            # o contador atomico do sorteio reserva o intervalo; a emissao
+            # grava um registro individual por numero
             faixa = repo.reservar_faixa_numeros(conn, sorteio.sorteio_id, resultado.quantidade_numeros_sorte)
-            repo.insert_numero_sorte_faixa(
-                conn, uuid4(), compra.account_id, event_id, sorteio.sorteio_id, faixa.numero_inicial, faixa.numero_final
+            repo.insert_numeros_sorte(
+                conn, compra.account_id, event_id, sorteio.sorteio_id, faixa.numero_inicial, faixa.numero_final
             )
 
         # Cabe em VARCHAR(50) (limite vem da spec original, nao alterado).

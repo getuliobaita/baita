@@ -82,8 +82,21 @@ class CampanhaAplicada(BaseModel):
 
 class NumerosSorteResumo(BaseModel):
     sorteio_id: UUID
-    numero_inicial: int
-    numero_final: int
+    numeros: List[int]
+    total: int
+
+
+class NumeroSorteItem(BaseModel):
+    numero: int
+    status: str
+    sorteio_id: UUID
+    data_sorteio: datetime
+    sorteio_status: str
+
+
+class MeusNumerosResponse(BaseModel):
+    numeros: List[NumeroSorteItem]
+    total: int
 
 
 class CompraDetalheResponse(BaseModel):
