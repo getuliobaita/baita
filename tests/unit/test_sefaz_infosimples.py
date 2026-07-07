@@ -33,6 +33,39 @@ def _adapter_respondendo(monkeypatch, corpo):
     return InfosimplesSefazAdapter("token_fake")
 
 
+def test_servico_unificado_e_o_padrao_e_template_por_uf_funciona(monkeypatch):
+    chamadas = []
+
+    def _captura(url, data, timeout):
+        chamadas.append((url, data))
+        return _RespostaFake({"code": 612, "code_message": "nota não encontrada"})
+
+    monkeypatch.setattr(modulo.requests, "post", _captura)
+
+    InfosimplesSefazAdapter("t").consultar("RS", CHAVE)
+    assert chamadas[-1][0].endswith("/consultas/sefaz/nfce")
+
+    InfosimplesSefazAdapter("t", servico="sefaz/{uf}/nfce").consultar("RS", CHAVE)
+    assert chamadas[-1][0].endswith("/consultas/sefaz/rs/nfce")
+
+
+def test_credenciais_extras_sao_encaminhadas(monkeypatch):
+    chamadas = []
+
+    def _captura(url, data, timeout):
+        chamadas.append(data)
+        return _RespostaFake({"code": 612, "code_message": "nota não encontrada"})
+
+    monkeypatch.setattr(modulo.requests, "post", _captura)
+    adapter = InfosimplesSefazAdapter(
+        "t", params_extras={"pkcs12_cert": "certbase64", "pkcs12_pass": "senha"}
+    )
+    adapter.consultar("RS", CHAVE)
+    assert chamadas[-1]["pkcs12_cert"] == "certbase64"
+    assert chamadas[-1]["pkcs12_pass"] == "senha"
+    assert chamadas[-1]["nfce"] == CHAVE
+
+
 def test_resposta_completa_e_normalizada(monkeypatch):
     corpo = {
         "code": 200,

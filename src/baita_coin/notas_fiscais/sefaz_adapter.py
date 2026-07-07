@@ -166,23 +166,44 @@ def _parse_data(valor) -> datetime:
 class InfosimplesSefazAdapter(SefazAdapter):
     """Consulta NFC-e via Infosimples (https://api.infosimples.com).
 
-    Endpoint por UF: POST /api/v2/consultas/sefaz/{uf}/nfce com o token e a
-    chave de acesso. Envelope padrao da Infosimples: code 200 = sucesso com
-    `data`; demais codes = falha (transitoria ou nota inexistente).
+    `servico` e o path da consulta e aceita o placeholder {uf}:
+    - "sefaz/nfce" (padrao): consulta unificada, roteia pro portal certo
+    - "sefaz/{uf}/nfce": servico estadual especifico
+
+    Alguns portais (ex: SVRS/RS) exigem autenticacao pra consulta completa
+    (erro 606: "CPF e senha ou certificado digital devem ser informados") --
+    `params_extras` encaminha credenciais opcionais (pkcs12_cert/pkcs12_pass
+    do e-CNPJ A1 da empresa, ou login gov.br), configuradas so por env vars.
+
+    Envelope padrao da Infosimples: code 200 = sucesso com `data`; demais
+    codes = falha (transitoria ou nota inexistente).
     """
 
     BASE_URL = "https://api.infosimples.com/api/v2/consultas"
 
-    def __init__(self, token: str, timeout_segundos: int = 90) -> None:
+    def __init__(
+        self,
+        token: str,
+        servico: str = "sefaz/nfce",
+        timeout_segundos: int = 90,
+        params_extras: Optional[Dict[str, str]] = None,
+    ) -> None:
         self._token = token
+        self._servico = servico
         self._timeout = timeout_segundos
+        self._params_extras = params_extras or {}
 
     def consultar(self, uf: str, chave_acesso: str) -> ResultadoConsultaSefaz:
-        url = f"{self.BASE_URL}/sefaz/{uf.lower()}/nfce"
+        url = f"{self.BASE_URL}/{self._servico.format(uf=uf.lower())}"
         try:
             resposta = requests.post(
                 url,
-                data={"token": self._token, "nfce": chave_acesso, "timeout": self._timeout},
+                data={
+                    "token": self._token,
+                    "nfce": chave_acesso,
+                    "timeout": self._timeout,
+                    **self._params_extras,
+                },
                 timeout=self._timeout + 10,
             )
             corpo = resposta.json()

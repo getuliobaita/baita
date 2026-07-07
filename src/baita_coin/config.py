@@ -77,6 +77,16 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     sefaz_provider: str = "mock"
     infosimples_token: Optional[str] = None
+    # Path da consulta: "sefaz/nfce" (unificada) ou "sefaz/{uf}/nfce"
+    # (servico estadual -- {uf} e substituido pela UF da chave).
+    infosimples_servico: str = "sefaz/nfce"
+    # Autenticacao exigida por alguns portais (ex: SVRS/RS) pra consulta
+    # completa. Preferir o certificado e-CNPJ A1 da empresa (pkcs12 em
+    # base64 + senha); login gov.br pessoal fica como ultimo recurso.
+    infosimples_pkcs12_cert: Optional[str] = None
+    infosimples_pkcs12_pass: Optional[str] = None
+    infosimples_login_cpf: Optional[str] = None
+    infosimples_login_senha: Optional[str] = None
     # Intervalo minimo entre retentativas de consulta da MESMA nota (cada
     # consulta e cobrada) -- o GET de status so reconsulta depois disso.
     sefaz_reconsulta_intervalo_segundos: int = 300

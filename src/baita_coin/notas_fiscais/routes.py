@@ -45,7 +45,17 @@ def get_sefaz_adapter() -> SefazAdapter:
     global _sefaz_adapter_real
     if settings.sefaz_provider == "infosimples" and settings.infosimples_token:
         if _sefaz_adapter_real is None:
-            _sefaz_adapter_real = InfosimplesSefazAdapter(settings.infosimples_token)
+            credenciais = {
+                "pkcs12_cert": settings.infosimples_pkcs12_cert,
+                "pkcs12_pass": settings.infosimples_pkcs12_pass,
+                "login_cpf": settings.infosimples_login_cpf,
+                "login_senha": settings.infosimples_login_senha,
+            }
+            _sefaz_adapter_real = InfosimplesSefazAdapter(
+                settings.infosimples_token,
+                servico=settings.infosimples_servico,
+                params_extras={k: v for k, v in credenciais.items() if v},
+            )
         return _sefaz_adapter_real
     return sefaz_adapter_padrao
 
