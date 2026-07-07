@@ -182,6 +182,14 @@ class SorteioResponse(BaseModel):
     status: str
 
 
+class SorteioAdminResponse(BaseModel):
+    sorteio_id: UUID
+    data_sorteio: datetime
+    status: str
+    total_numeros: int
+    tem_apuracao: bool
+
+
 # ---- Apuracao do sorteio (auditoria) ----
 
 

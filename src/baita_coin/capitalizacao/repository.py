@@ -459,6 +459,23 @@ def get_sorteio(conn: Connection, sorteio_id: UUID) -> Optional[Row]:
     ).first()
 
 
+def list_sorteios(conn: Connection) -> List[Row]:
+    """Sorteios com contagem de numeros distribuidos e se ja tem apuracao --
+    lista do painel para escolher qual apurar/auditar."""
+    return conn.execute(
+        text(
+            """
+            SELECT s.sorteio_id, s.data_sorteio, s.status,
+                   (SELECT count(*) FROM numeros_sorte n
+                    WHERE n.sorteio_id = s.sorteio_id AND n.status = 'ativo') AS total_numeros,
+                   EXISTS(SELECT 1 FROM apuracoes a WHERE a.sorteio_id = s.sorteio_id) AS tem_apuracao
+            FROM sorteios s
+            ORDER BY s.data_sorteio DESC
+            """
+        )
+    ).all()
+
+
 def get_titulo_por_evento(conn: Connection, event_id: UUID) -> Optional[Row]:
     return conn.execute(
         text("SELECT * FROM capitalizacao_titulos WHERE event_id = :event_id"),

@@ -64,6 +64,7 @@ from baita_coin.capitalizacao.schemas import (
     PlanoResponse,
     RegraAplicada,
     RelatorioCompradoresResponse,
+    SorteioAdminResponse,
     SorteioResponse,
     WebhookPagamentoRequest,
     WebhookPagamentoResponse,
@@ -92,6 +93,20 @@ def abrir_sorteio(engine: Engine, payload: AbrirSorteioRequest) -> SorteioRespon
     with engine.begin() as conn:
         row = repo.insert_sorteio(conn, uuid4(), payload.data_sorteio)
         return SorteioResponse(sorteio_id=row.sorteio_id, data_sorteio=row.data_sorteio, status=row.status)
+
+
+def listar_sorteios(engine: Engine) -> List[SorteioAdminResponse]:
+    with engine.begin() as conn:
+        return [
+            SorteioAdminResponse(
+                sorteio_id=r.sorteio_id,
+                data_sorteio=r.data_sorteio,
+                status=r.status,
+                total_numeros=r.total_numeros,
+                tem_apuracao=r.tem_apuracao,
+            )
+            for r in repo.list_sorteios(conn)
+        ]
 
 
 # ---------------------------------------------------------------------------

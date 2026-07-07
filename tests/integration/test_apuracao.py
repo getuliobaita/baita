@@ -149,6 +149,23 @@ def test_aproximacao_quando_numero_base_nao_foi_distribuido(client, criar_conta_
     assert corpo["contemplados"][0]["numero_sorte"] == "59.840"
 
 
+def test_listar_sorteios_mostra_contagem_e_se_tem_apuracao(client, criar_conta_ativa, test_engine):
+    sorteio_id, a, b, c = _cenario_tres_ganhadores(test_engine, criar_conta_ativa)
+
+    antes = client.get("/v1/admin/sorteios").json()
+    alvo = next(s for s in antes if s["sorteio_id"] == str(sorteio_id))
+    assert alvo["total_numeros"] == 5  # 3 ganhadores + 2 de ruido
+    assert alvo["tem_apuracao"] is False
+
+    client.post(
+        f"/v1/admin/sorteios/{sorteio_id}/apuracao",
+        json={"premios_loteria": PREMIOS, "data_extracao": "2026-08-01"},
+    )
+    depois = client.get("/v1/admin/sorteios").json()
+    alvo = next(s for s in depois if s["sorteio_id"] == str(sorteio_id))
+    assert alvo["tem_apuracao"] is True
+
+
 def test_apuracao_de_sorteio_inexistente_retorna_404(client):
     resp = client.post(
         f"/v1/admin/sorteios/{uuid4()}/apuracao/simular",
