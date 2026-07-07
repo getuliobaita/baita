@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends
@@ -15,6 +15,7 @@ from baita_coin.notas_fiscais.schemas import (
     RegraParceiroResponse,
     SubmeterNotaFiscalRequest,
     SubmeterNotaFiscalResponse,
+    SubmissaoAdminResponse,
     SubmissaoDetalheResponse,
 )
 from baita_coin.notas_fiscais.sefaz_adapter import (
@@ -71,6 +72,15 @@ def consultar_submissao_endpoint(
     sefaz_adapter: SefazAdapter = Depends(get_sefaz_adapter),
 ) -> SubmissaoDetalheResponse:
     return service.consultar_submissao(engine, sefaz_adapter, submissao_id)
+
+
+@router.get("/v1/admin/notas-fiscais/submissoes", response_model=List[SubmissaoAdminResponse])
+def listar_submissoes_admin_endpoint(
+    status: Optional[str] = None,
+    limite: int = 50,
+    engine: Engine = Depends(get_engine),
+) -> List[SubmissaoAdminResponse]:
+    return service.listar_submissoes_admin(engine, status, limite)
 
 
 @router.post("/v1/admin/parceiros", response_model=ParceiroResponse, status_code=201)

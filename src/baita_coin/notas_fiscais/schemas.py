@@ -38,6 +38,19 @@ class SubmissaoDetalheResponse(BaseModel):
     processado_em: Optional[datetime] = None
 
 
+class SubmissaoAdminResponse(BaseModel):
+    submissao_id: UUID
+    account_id: UUID
+    conta_cpf: Optional[str] = None
+    status: str
+    cnpj_emitente: Optional[str] = None
+    parceiro_nome: Optional[str] = None
+    valor_total: Optional[Decimal] = None
+    motivo_rejeicao: Optional[str] = None
+    criado_em: datetime
+    processado_em: Optional[datetime] = None
+
+
 class CriarParceiroRequest(BaseModel):
     cnpj: str = Field(min_length=14, max_length=14)
     nome_fantasia: str

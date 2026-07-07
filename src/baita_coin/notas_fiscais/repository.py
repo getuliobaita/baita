@@ -19,6 +19,24 @@ def get_parceiro_por_cnpj(conn: Connection, cnpj: str) -> Optional[Row]:
     return conn.execute(text("SELECT * FROM parceiros WHERE cnpj = :cnpj"), {"cnpj": cnpj}).first()
 
 
+def list_submissoes(conn: Connection, status: Optional[str], limite: int):
+    filtro = "WHERE s.status = :status" if status else ""
+    return conn.execute(
+        text(
+            f"""
+            SELECT s.*, a.cpf AS conta_cpf, p.nome_fantasia AS parceiro_nome
+            FROM nf_submissoes s
+            JOIN wallet_accounts a ON a.account_id = s.account_id
+            LEFT JOIN parceiros p ON p.cnpj = s.cnpj_emitente
+            {filtro}
+            ORDER BY s.criado_em DESC
+            LIMIT :limite
+            """
+        ),
+        {"status": status, "limite": limite},
+    ).all()
+
+
 def insert_parceiro(
     conn: Connection, parceiro_id: UUID, cnpj: str, nome_fantasia: str, canal_nf: bool, canal_api: bool
 ) -> Row:

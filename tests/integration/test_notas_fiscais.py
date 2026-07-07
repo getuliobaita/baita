@@ -151,6 +151,28 @@ def test_cnpj_nao_parceiro_e_rejeitada_sem_consultar_sefaz(client, criar_conta_a
     assert detalhe["cnpj_emitente"] == "99999999000199"
 
 
+def test_fila_admin_lista_submissoes_com_motivo(client, criar_conta_ativa):
+    account_id = criar_conta_ativa()
+    _criar_parceiro(client)
+    _criar_regra_parceiro(client)
+    chave_ok = _chave("0013")
+    _programar_sefaz_valida(chave_ok, valor_total="100.00")
+    _submeter(client, account_id, chave_ok, "nf_fila_1")
+    client.get(
+        f"/v1/notas-fiscais/submissoes/{_submeter(client, account_id, _chave('0014', cnpj='99999999000199'), 'nf_fila_2').json()['submissao_id']}"
+    )
+
+    fila = client.get("/v1/admin/notas-fiscais/submissoes").json()
+    assert len(fila) == 2
+    por_status = {item["status"] for item in fila}
+    assert por_status == {"creditada", "rejeitada"}
+    rejeitada = next(i for i in fila if i["status"] == "rejeitada")
+    assert "LOJA_NAO_PARCEIRA" in rejeitada["motivo_rejeicao"]
+
+    so_rejeitadas = client.get("/v1/admin/notas-fiscais/submissoes", params={"status": "rejeitada"}).json()
+    assert [i["status"] for i in so_rejeitadas] == ["rejeitada"]
+
+
 def test_sefaz_fora_do_ar_mantem_em_analise_e_reprocessa_no_proximo_get(client, criar_conta_ativa):
     account_id = criar_conta_ativa()
     _criar_parceiro(client)

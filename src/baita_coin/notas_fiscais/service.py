@@ -12,6 +12,7 @@ funcao em si ja e independente de framework web.
 import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from typing import List, Optional
 from uuid import UUID, uuid4
 
 from fastapi import BackgroundTasks
@@ -43,6 +44,7 @@ from baita_coin.notas_fiscais.schemas import (
     RegraParceiroResponse,
     SubmeterNotaFiscalRequest,
     SubmeterNotaFiscalResponse,
+    SubmissaoAdminResponse,
     SubmissaoDetalheResponse,
 )
 from baita_coin.notas_fiscais.sefaz_adapter import SefazAdapter, SefazIndisponivel
@@ -341,6 +343,30 @@ def consultar_submissao(
             motivo_rejeicao=submissao.motivo_rejeicao,
             processado_em=submissao.processado_em,
         )
+
+
+def listar_submissoes_admin(
+    engine: Engine, status: Optional[str] = None, limite: int = 50
+) -> List[SubmissaoAdminResponse]:
+    """Fila de notas pro painel: toda submissao com status/motivo -- e o
+    primeiro lugar pra olhar quando 'o cashback nao caiu'."""
+    with engine.begin() as conn:
+        rows = repo.list_submissoes(conn, status, limite)
+        return [
+            SubmissaoAdminResponse(
+                submissao_id=r.submissao_id,
+                account_id=r.account_id,
+                conta_cpf=r.conta_cpf,
+                status=r.status,
+                cnpj_emitente=r.cnpj_emitente,
+                parceiro_nome=r.parceiro_nome,
+                valor_total=r.valor_total,
+                motivo_rejeicao=r.motivo_rejeicao,
+                criado_em=r.criado_em,
+                processado_em=r.processado_em,
+            )
+            for r in rows
+        ]
 
 
 # ---------------------------------------------------------------------------
