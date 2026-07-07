@@ -8,6 +8,9 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.engine import Connection, Row
 
+from baita_coin.capitalizacao.apuracao import TOTAL_NUMEROS_SERIE
+from baita_coin.capitalizacao.errors import SerieDeSorteioCheia
+
 
 def list_planos_ativos(conn: Connection) -> List[Row]:
     return conn.execute(
@@ -335,24 +338,6 @@ def get_sorteio_aberto_for_update(conn: Connection) -> Optional[Row]:
     ).first()
 
 
-def reservar_faixa_numeros(conn: Connection, sorteio_id: UUID, quantidade: int) -> Row:
-    """Incrementa o contador do sorteio de forma atomica e devolve o
-    intervalo [numero_inicial, numero_final] reservado pra esta compra."""
-    return conn.execute(
-        text(
-            """
-            UPDATE sorteios
-            SET proximo_numero_disponivel = proximo_numero_disponivel + :quantidade
-            WHERE sorteio_id = :sorteio_id
-            RETURNING
-                (proximo_numero_disponivel - :quantidade) AS numero_inicial,
-                (proximo_numero_disponivel - 1) AS numero_final
-            """
-        ),
-        {"sorteio_id": str(sorteio_id), "quantidade": quantidade},
-    ).first()
-
-
 def insert_sorteio(conn: Connection, sorteio_id: UUID, data_sorteio: datetime) -> Row:
     return conn.execute(
         text(
@@ -362,34 +347,63 @@ def insert_sorteio(conn: Connection, sorteio_id: UUID, data_sorteio: datetime) -
     ).first()
 
 
-def insert_numeros_sorte(
+_MAX_RODADAS_SORTEIO_NUMERO = 60
+
+
+def emitir_numeros_sorte_aleatorios(
     conn: Connection,
     account_id: UUID,
     event_id: UUID,
     sorteio_id: UUID,
-    numero_inicial: int,
-    numero_final: int,
+    quantidade: int,
+    serie: int = 1,
 ) -> List[int]:
-    """Insere UM REGISTRO POR NUMERO no intervalo reservado (individualizado
-    por decisao do usuario) e devolve a lista de numeros emitidos."""
-    rows = conn.execute(
-        text(
-            """
-            INSERT INTO numeros_sorte (account_id, event_id, sorteio_id, numero)
-            SELECT :account_id, :event_id, :sorteio_id, gs.numero
-            FROM generate_series(CAST(:numero_inicial AS bigint), CAST(:numero_final AS bigint)) AS gs(numero)
-            RETURNING numero
-            """
-        ),
-        {
-            "account_id": str(account_id),
-            "event_id": str(event_id),
-            "sorteio_id": str(sorteio_id),
-            "numero_inicial": numero_inicial,
-            "numero_final": numero_final,
-        },
-    ).all()
-    return [r.numero for r in rows]
+    """Emite `quantidade` numeros da sorte ALEATORIOS em [00000, 99999], nao
+    repetidos na serie (regra 3.1.4 do regulamento).
+
+    Sorteia candidatos distintos e insere com ON CONFLICT DO NOTHING contra a
+    unicidade (sorteio_id, serie, numero); numeros ja tomados (por esta compra
+    ou por transacoes concorrentes) sao pulados e um novo lote cobre o que
+    faltou. Como o volume real (milhares/mes) e minusculo perto dos 100.000
+    numeros da serie, colisoes sao raras e a convergencia e imediata.
+    """
+    import random
+
+    emitidos: List[int] = []
+    rodadas = 0
+    while len(emitidos) < quantidade and rodadas < _MAX_RODADAS_SORTEIO_NUMERO:
+        faltam = quantidade - len(emitidos)
+        candidatos = random.sample(range(TOTAL_NUMEROS_SERIE), faltam)
+        rows = conn.execute(
+            text(
+                """
+                INSERT INTO numeros_sorte (account_id, event_id, sorteio_id, serie, numero)
+                SELECT :account_id, :event_id, :sorteio_id, :serie, x
+                FROM unnest(CAST(:candidatos AS integer[])) AS x
+                ON CONFLICT (sorteio_id, serie, numero) DO NOTHING
+                RETURNING numero
+                """
+            ),
+            {
+                "account_id": str(account_id),
+                "event_id": str(event_id),
+                "sorteio_id": str(sorteio_id),
+                "serie": serie,
+                "candidatos": candidatos,
+            },
+        ).all()
+        emitidos.extend(r.numero for r in rows)
+        rodadas += 1
+
+    if len(emitidos) < quantidade:
+        # Serie praticamente cheia (100.000 numeros) -- so alcancavel em
+        # escala muito acima da atual. Rolagem para nova serie fica de
+        # backlog; por ora, falha explicita e melhor que loop infinito.
+        raise SerieDeSorteioCheia(
+            "serie de numeros da sorte praticamente esgotada",
+            detalhes={"sorteio_id": str(sorteio_id), "serie": serie},
+        )
+    return emitidos
 
 
 def insert_capitalizacao_titulo(
@@ -458,4 +472,121 @@ def get_numeros_sorte_por_evento(conn: Connection, event_id: UUID) -> List[Row]:
             "SELECT numero, sorteio_id FROM numeros_sorte WHERE event_id = :event_id ORDER BY numero ASC"
         ),
         {"event_id": str(event_id)},
+    ).all()
+
+
+# ---------------------------------------------------------------------------
+# Apuracao do sorteio (auditavel)
+# ---------------------------------------------------------------------------
+
+
+def get_numeros_distribuidos(conn: Connection, sorteio_id: UUID, serie: int) -> List[Row]:
+    """Todos os numeros ativos da serie, com o dono -- base da apuracao."""
+    return conn.execute(
+        text(
+            """
+            SELECT numero, account_id
+            FROM numeros_sorte
+            WHERE sorteio_id = :sorteio_id AND serie = :serie AND status = 'ativo'
+            ORDER BY numero ASC
+            """
+        ),
+        {"sorteio_id": str(sorteio_id), "serie": serie},
+    ).all()
+
+
+def get_dados_contato(conn: Connection, account_id: UUID) -> Optional[Row]:
+    return conn.execute(
+        text("SELECT cpf, nome, celular, email FROM wallet_accounts WHERE account_id = :id"),
+        {"id": str(account_id)},
+    ).first()
+
+
+def get_apuracao(conn: Connection, sorteio_id: UUID, serie: int) -> Optional[Row]:
+    return conn.execute(
+        text("SELECT * FROM apuracoes WHERE sorteio_id = :sorteio_id AND serie = :serie"),
+        {"sorteio_id": str(sorteio_id), "serie": serie},
+    ).first()
+
+
+def insert_apuracao(
+    conn: Connection,
+    apuracao_id: UUID,
+    sorteio_id: UUID,
+    serie: int,
+    data_extracao,
+    premios_loteria: list,
+    numero_base: int,
+    premios: list,
+    total_distribuidos: int,
+    resultado_hash: str,
+) -> Row:
+    return conn.execute(
+        text(
+            """
+            INSERT INTO apuracoes
+                (apuracao_id, sorteio_id, serie, data_extracao, premios_loteria,
+                 numero_base, premios, total_distribuidos, resultado_hash)
+            VALUES
+                (:apuracao_id, :sorteio_id, :serie, :data_extracao, CAST(:premios_loteria AS jsonb),
+                 :numero_base, CAST(:premios AS jsonb), :total_distribuidos, :resultado_hash)
+            RETURNING *
+            """
+        ),
+        {
+            "apuracao_id": str(apuracao_id),
+            "sorteio_id": str(sorteio_id),
+            "serie": serie,
+            "data_extracao": data_extracao,
+            "premios_loteria": json.dumps([str(p) for p in premios_loteria]),
+            "numero_base": numero_base,
+            "premios": json.dumps([str(p) for p in premios]),
+            "total_distribuidos": total_distribuidos,
+            "resultado_hash": resultado_hash,
+        },
+    ).first()
+
+
+def insert_contemplado(
+    conn: Connection,
+    contemplado_id: UUID,
+    apuracao_id: UUID,
+    ordem: int,
+    numero_sorte: int,
+    account_id: UUID,
+    premio_valor: Decimal,
+) -> Row:
+    return conn.execute(
+        text(
+            """
+            INSERT INTO apuracao_contemplados
+                (contemplado_id, apuracao_id, ordem, numero_sorte, account_id, premio_valor)
+            VALUES
+                (:contemplado_id, :apuracao_id, :ordem, :numero_sorte, :account_id, :premio_valor)
+            RETURNING *
+            """
+        ),
+        {
+            "contemplado_id": str(contemplado_id),
+            "apuracao_id": str(apuracao_id),
+            "ordem": ordem,
+            "numero_sorte": numero_sorte,
+            "account_id": str(account_id),
+            "premio_valor": premio_valor,
+        },
+    ).first()
+
+
+def get_contemplados(conn: Connection, apuracao_id: UUID) -> List[Row]:
+    return conn.execute(
+        text(
+            """
+            SELECT c.*, a.cpf, a.nome, a.celular, a.email
+            FROM apuracao_contemplados c
+            JOIN wallet_accounts a ON a.account_id = c.account_id
+            WHERE c.apuracao_id = :apuracao_id
+            ORDER BY c.ordem ASC
+            """
+        ),
+        {"apuracao_id": str(apuracao_id)},
     ).all()

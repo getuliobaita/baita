@@ -38,6 +38,7 @@ src/baita_coin/
 │   # ---- módulos de domínio (todos seguem o mesmo layout) ----
 ├── wallet/            # contas, ledger de coins, lotes FIFO, login/senha
 ├── capitalizacao/     # compras, planos, sorteios, campanhas, gateway de pagamento
+│   └── apuracao.py    #   apuração auditável do sorteio (método SUSEP, puro)
 ├── beneficios/        # catálogo desconto/cashback (custo em coins por uso)
 ├── notas_fiscais/     # cashback por NF de parceiro (QR/OCR/SEFAZ + antifraude)
 ├── resgates/          # troca de coins por produtos (reserva → confirmação → débito)

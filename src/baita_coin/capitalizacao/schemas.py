@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
@@ -180,3 +180,39 @@ class SorteioResponse(BaseModel):
     sorteio_id: UUID
     data_sorteio: datetime
     status: str
+
+
+# ---- Apuracao do sorteio (auditoria) ----
+
+
+class ExecutarApuracaoRequest(BaseModel):
+    # os 5 primeiros premios da extracao da Loteria Federal, como divulgados
+    # (ex: ["15985", "46729", "53008", "40143", "30123"])
+    premios_loteria: List[str] = Field(min_length=5, max_length=5)
+    data_extracao: date
+    # tabela de premios; vazio usa o padrao da edicao (1x50k + 2x25k)
+    premios: List[Decimal] = Field(default_factory=list)
+    serie: int = 1
+
+
+class ContempladoResponse(BaseModel):
+    ordem: int
+    numero_sorte: str  # formatado "59.833"
+    account_id: UUID
+    cpf: Optional[str] = None
+    nome: Optional[str] = None
+    premio_valor: Decimal
+
+
+class ApuracaoResponse(BaseModel):
+    apuracao_id: Optional[UUID] = None  # None em simulacao
+    sorteio_id: UUID
+    serie: int
+    data_extracao: date
+    premios_loteria: List[str]
+    numero_base: str  # formatado "59.833"
+    total_distribuidos: int
+    resultado_hash: str
+    criado_em: Optional[datetime] = None  # None em simulacao
+    simulacao: bool = False
+    contemplados: List[ContempladoResponse]

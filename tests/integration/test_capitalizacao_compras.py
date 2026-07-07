@@ -83,7 +83,7 @@ def test_fluxo_completo_credita_coins_e_gera_numero_da_sorte(client, criar_conta
 
 def test_numeros_individuais_e_endpoint_meus_numeros(client, criar_conta_ativa):
     account_id = criar_conta_ativa()
-    # 3 pacotes = 60 coins = 3 numeros individuais e sequenciais
+    # 3 pacotes = 60 coins = 3 numeros individuais e ALEATORIOS (00000-99999)
     _, resp_webhook = _comprar_e_confirmar(client, account_id, quantidade_pacotes=3, prefixo="individ1")
     assert resp_webhook.status_code == 200
 
@@ -91,8 +91,7 @@ def test_numeros_individuais_e_endpoint_meus_numeros(client, criar_conta_ativa):
     assert meus["total"] == 3
     numeros = [n["numero"] for n in meus["numeros"]]
     assert len(set(numeros)) == 3  # todos distintos
-    assert numeros == sorted(numeros)
-    assert numeros[2] - numeros[0] == 2  # sequenciais
+    assert all(0 <= n <= 99999 for n in numeros)  # dentro da faixa do regulamento
     assert all(n["status"] == "ativo" for n in meus["numeros"])
     assert all(n["data_sorteio"] for n in meus["numeros"])
 

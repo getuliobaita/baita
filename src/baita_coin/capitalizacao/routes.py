@@ -15,6 +15,7 @@ from baita_coin.capitalizacao.gateway import (
 from baita_coin.capitalizacao.gateway_pagarme import PagarmeGatewayAdapter
 from baita_coin.capitalizacao.schemas import (
     AbrirSorteioRequest,
+    ApuracaoResponse,
     AtualizarCampanhaRequest,
     AtualizarPlanoRequest,
     CampanhaResponse,
@@ -24,6 +25,7 @@ from baita_coin.capitalizacao.schemas import (
     CriarCompraRequest,
     CriarCompraResponse,
     CriarPlanoRequest,
+    ExecutarApuracaoRequest,
     MeusNumerosResponse,
     PlanoResponse,
     RelatorioCompradoresResponse,
@@ -181,6 +183,29 @@ def listar_meus_numeros_endpoint(
 @router.post("/v1/internal/sorteios", response_model=SorteioResponse, status_code=201)
 def abrir_sorteio_endpoint(payload: AbrirSorteioRequest, engine: Engine = Depends(get_engine)) -> SorteioResponse:
     return service.abrir_sorteio(engine, payload)
+
+
+@router.post("/v1/admin/sorteios/{sorteio_id}/apuracao/simular", response_model=ApuracaoResponse)
+def simular_apuracao_endpoint(
+    sorteio_id: UUID, payload: ExecutarApuracaoRequest, engine: Engine = Depends(get_engine)
+) -> ApuracaoResponse:
+    """Calcula o resultado sem gravar -- confere antes de oficializar."""
+    return service.simular_apuracao(engine, sorteio_id, payload)
+
+
+@router.post("/v1/admin/sorteios/{sorteio_id}/apuracao", response_model=ApuracaoResponse, status_code=201)
+def executar_apuracao_endpoint(
+    sorteio_id: UUID, payload: ExecutarApuracaoRequest, engine: Engine = Depends(get_engine)
+) -> ApuracaoResponse:
+    """Executa e grava a apuracao de forma imutavel (idempotente por serie)."""
+    return service.executar_apuracao(engine, sorteio_id, payload)
+
+
+@router.get("/v1/admin/sorteios/{sorteio_id}/apuracao", response_model=ApuracaoResponse)
+def consultar_apuracao_endpoint(
+    sorteio_id: UUID, serie: int = 1, engine: Engine = Depends(get_engine)
+) -> ApuracaoResponse:
+    return service.consultar_apuracao(engine, sorteio_id, serie)
 
 
 @router.get("/v1/admin/relatorios/compradores", response_model=RelatorioCompradoresResponse)
