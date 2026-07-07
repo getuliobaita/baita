@@ -1,8 +1,10 @@
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.engine import Engine
 
+from baita_coin.config import settings
 from baita_coin.db import engine as default_engine
 from baita_coin.notas_fiscais import service
 from baita_coin.notas_fiscais.ocr_adapter import MockOcrAdapter, OcrAdapter
@@ -15,7 +17,11 @@ from baita_coin.notas_fiscais.schemas import (
     SubmeterNotaFiscalResponse,
     SubmissaoDetalheResponse,
 )
-from baita_coin.notas_fiscais.sefaz_adapter import MockSefazAdapter, SefazAdapter
+from baita_coin.notas_fiscais.sefaz_adapter import (
+    InfosimplesSefazAdapter,
+    MockSefazAdapter,
+    SefazAdapter,
+)
 
 router = APIRouter()
 
@@ -25,12 +31,21 @@ router = APIRouter()
 sefaz_adapter_padrao = MockSefazAdapter()
 ocr_adapter_padrao = MockOcrAdapter()
 
+_sefaz_adapter_real: Optional[SefazAdapter] = None
+
 
 def get_engine() -> Engine:
     return default_engine
 
 
 def get_sefaz_adapter() -> SefazAdapter:
+    # Mesmo padrao do gateway Pagar.me: real so quando as env vars existem
+    # (producao); sem elas, mock -- dev e testes nunca gastam consulta paga.
+    global _sefaz_adapter_real
+    if settings.sefaz_provider == "infosimples" and settings.infosimples_token:
+        if _sefaz_adapter_real is None:
+            _sefaz_adapter_real = InfosimplesSefazAdapter(settings.infosimples_token)
+        return _sefaz_adapter_real
     return sefaz_adapter_padrao
 
 
@@ -51,9 +66,11 @@ def submeter_nota_fiscal_endpoint(
 
 @router.get("/v1/notas-fiscais/submissoes/{submissao_id}", response_model=SubmissaoDetalheResponse)
 def consultar_submissao_endpoint(
-    submissao_id: UUID, engine: Engine = Depends(get_engine)
+    submissao_id: UUID,
+    engine: Engine = Depends(get_engine),
+    sefaz_adapter: SefazAdapter = Depends(get_sefaz_adapter),
 ) -> SubmissaoDetalheResponse:
-    return service.consultar_submissao(engine, submissao_id)
+    return service.consultar_submissao(engine, sefaz_adapter, submissao_id)
 
 
 @router.post("/v1/admin/parceiros", response_model=ParceiroResponse, status_code=201)

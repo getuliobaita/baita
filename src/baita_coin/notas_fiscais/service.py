@@ -9,6 +9,7 @@ credito acontece depois), mas trocar por uma fila de verdade depois exige
 so mover a chamada de `processar_submissao` pra um worker/consumer -- a
 funcao em si ja e independente de framework web.
 """
+import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -30,6 +31,7 @@ from baita_coin.notas_fiscais.errors import (
 )
 from baita_coin.notas_fiscais.ocr_adapter import OcrAdapter
 from baita_coin.notas_fiscais.qrcode import (
+    cnpj_da_chave_acesso,
     extrair_chave_do_qr_payload,
     uf_da_chave_acesso,
     validar_chave_acesso,
@@ -43,13 +45,15 @@ from baita_coin.notas_fiscais.schemas import (
     SubmeterNotaFiscalResponse,
     SubmissaoDetalheResponse,
 )
-from baita_coin.notas_fiscais.sefaz_adapter import SefazAdapter
+from baita_coin.notas_fiscais.sefaz_adapter import SefazAdapter, SefazIndisponivel
 from baita_coin.shared.dinheiro import arredondar_centavos
 from baita_coin.shared.postgres import constraint_violada
 from baita_coin.wallet import repository as wallet_repo
 from baita_coin.wallet import service as wallet_service
 from baita_coin.wallet.constants import TipoEvento
 from baita_coin.wallet.errors import ContaNaoEncontrada, IdempotencyKeyConflitante
+
+logger = logging.getLogger("baita.nf")
 
 _CONSTRAINT_SUBMISSAO_IDEMPOTENCY_KEY = "nf_submissoes_idempotency_key_key"
 
@@ -122,6 +126,22 @@ def submeter_nota_fiscal(
                 status_inicial,
                 motivo,
             )
+
+            # Pre-filtro de parceiro: o CNPJ do emitente vem embutido na
+            # propria chave de acesso (digitos 7-20), entao da pra rejeitar
+            # nota de loja nao-parceira AQUI, de graca -- sem gastar uma
+            # consulta paga na SEFAZ. Corta a maior fatia do custo por
+            # consulta, ja que o usuario escaneia qualquer notinha.
+            if submissao.status == STATUS_RECEBIDA:
+                cnpj_da_chave = cnpj_da_chave_acesso(submissao.chave_acesso)
+                parceiro = repo.get_parceiro_por_cnpj(conn, cnpj_da_chave)
+                if parceiro is None or parceiro.status != "ativo" or not parceiro.canal_nf:
+                    submissao = repo.rejeitar_submissao(
+                        conn,
+                        submissao_id,
+                        "LOJA_NAO_PARCEIRA: nota valida, mas a loja nao e parceira Baita",
+                        cnpj_emitente=cnpj_da_chave,
+                    )
     except IntegrityError as exc:
         if constraint_violada(exc) != _CONSTRAINT_SUBMISSAO_IDEMPOTENCY_KEY:
             raise
@@ -139,11 +159,26 @@ def submeter_nota_fiscal(
 
 def processar_submissao(engine: Engine, sefaz_adapter: SefazAdapter, submissao_id: UUID) -> None:
     with engine.begin() as conn:
+        pendente = repo.get_submissao(conn, submissao_id)
+        if pendente is None or pendente.status != STATUS_RECEBIDA:
+            return  # ja processada (redelivery) ou nao existe -- idempotente
+        uf, chave_acesso = pendente.uf, pendente.chave_acesso
+
+    # A consulta roda FORA da transacao: com o adapter real e I/O de rede
+    # (segundos), nao da pra segurar lock/conexao do banco esperando.
+    try:
+        resultado = sefaz_adapter.consultar(uf, chave_acesso)
+    except SefazIndisponivel as exc:
+        # Falha NOSSA/do portal nunca rejeita a nota do cliente: fica
+        # 'recebida' e e reprocessada na proxima consulta de status.
+        logger.warning("SEFAZ indisponivel pra submissao %s: %s", submissao_id, exc)
+        return
+
+    with engine.begin() as conn:
         submissao = repo.get_submissao_for_update(conn, submissao_id)
         if submissao is None or submissao.status != STATUS_RECEBIDA:
-            return  # ja processada (redelivery) ou nao existe -- idempotente
+            return  # outra chamada concorrente processou primeiro
 
-        resultado = sefaz_adapter.consultar(submissao.uf, submissao.chave_acesso)
         if not resultado.valido:
             repo.rejeitar_submissao(conn, submissao_id, "NOTA_INVALIDA: SEFAZ nao confirmou a autenticidade desta nota")
             return
@@ -265,13 +300,25 @@ def processar_submissao(engine: Engine, sefaz_adapter: SefazAdapter, submissao_i
         repo.creditar_submissao(conn, submissao_id, event_id, resultado.cnpj_emitente, resultado.valor_total)
 
 
-def consultar_submissao(engine: Engine, submissao_id: UUID) -> SubmissaoDetalheResponse:
+def consultar_submissao(
+    engine: Engine, sefaz_adapter: SefazAdapter, submissao_id: UUID
+) -> SubmissaoDetalheResponse:
     with engine.begin() as conn:
         submissao = repo.get_submissao(conn, submissao_id)
         if submissao is None:
             raise SubmissaoNaoEncontrada(
                 "submissao_id nao encontrado", detalhes={"submissao_id": str(submissao_id)}
             )
+
+    # Auto-reparo: se ainda esta 'recebida' (SEFAZ estava fora do ar, ou o
+    # processo reiniciou antes do background rodar), tenta processar agora.
+    # E idempotente e seguro sob concorrencia (FOR UPDATE + checagem de
+    # status dentro de processar_submissao).
+    if submissao.status == STATUS_RECEBIDA:
+        processar_submissao(engine, sefaz_adapter, submissao_id)
+
+    with engine.begin() as conn:
+        submissao = repo.get_submissao(conn, submissao_id)
 
         parceiro_nome = None
         if submissao.cnpj_emitente:

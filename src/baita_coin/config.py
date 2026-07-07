@@ -68,5 +68,15 @@ class Settings(BaseSettings):
     nfeio_city_service_code: str = "0107"
     nfeio_iss_rate: float = 5.0
 
+    # ------------------------------------------------------------------
+    # Consulta de NFC-e na SEFAZ (validacao do cashback por nota):
+    # "mock" (padrao) ou "infosimples". Com "infosimples", INFOSIMPLES_TOKEN
+    # e obrigatorio (dashboard em api.infosimples.com). Cobrado por
+    # consulta -- o pre-filtro de CNPJ na chave ja corta as notas de lojas
+    # nao-parceiras antes de gastar.
+    # ------------------------------------------------------------------
+    sefaz_provider: str = "mock"
+    infosimples_token: Optional[str] = None
+
 
 settings = Settings()

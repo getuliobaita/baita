@@ -7,13 +7,16 @@ from baita_coin.notas_fiscais.sefaz_adapter import ResultadoConsultaSefaz
 CNPJ_PARCEIRO = "12345678000199"
 
 
-def _chave(sufixo: str, uf_codigo: str = "43") -> str:
-    corpo = (uf_codigo + sufixo).ljust(44, "1")
+def _chave(sufixo: str, uf_codigo: str = "43", cnpj: str = CNPJ_PARCEIRO) -> str:
+    """Chave no layout oficial: cUF(2) + AAMM(4) + CNPJ(14) + resto -- o
+    CNPJ embutido importa porque o pre-filtro de parceiro le ele da chave."""
+    corpo = (uf_codigo + "2607" + cnpj + sufixo).ljust(44, "1")
     return corpo[:44]
 
 
 def _qr_payload(chave: str) -> str:
-    return f"https://www.sefaz.rs.gov.br/nfce/consulta?chNFe={chave}&outro=1"
+    # formato v2 real (SEFAZ-RS): parametro p com campos separados por |
+    return f"https://dfe-portal.svrs.rs.gov.br/NFCe/QRCode?p={chave}|2|1|1|ABCDEF12"
 
 
 def _criar_parceiro(client, cnpj=CNPJ_PARCEIRO, nome_fantasia="Tramontina"):
@@ -131,17 +134,44 @@ def test_mesma_idempotency_key_e_idempotente_nao_duplica_credito(client, criar_c
     assert len(eventos) == 1
 
 
-def test_cnpj_nao_parceiro_e_rejeitada(client, criar_conta_ativa):
+def test_cnpj_nao_parceiro_e_rejeitada_sem_consultar_sefaz(client, criar_conta_ativa):
     account_id = criar_conta_ativa()
-    chave = _chave("0004")
-    _programar_sefaz_valida(chave, cnpj_emitente="99999999000199")  # nunca cadastrado como parceiro
+    chave = _chave("0004", cnpj="99999999000199")  # nunca cadastrado como parceiro
+    # deliberadamente NAO programa o mock da SEFAZ: se o pipeline consultasse,
+    # o motivo seria NOTA_INVALIDA -- LOJA_NAO_PARCEIRA prova que o pre-filtro
+    # pelo CNPJ da chave rejeitou ANTES da consulta (que em producao e paga).
 
     resp = _submeter(client, account_id, chave, "nf_naoparc_1")
+    assert resp.json()["status"] == "rejeitada"
     submissao_id = resp.json()["submissao_id"]
 
     detalhe = client.get(f"/v1/notas-fiscais/submissoes/{submissao_id}").json()
     assert detalhe["status"] == "rejeitada"
     assert "LOJA_NAO_PARCEIRA" in detalhe["motivo_rejeicao"]
+    assert detalhe["cnpj_emitente"] == "99999999000199"
+
+
+def test_sefaz_fora_do_ar_mantem_em_analise_e_reprocessa_no_proximo_get(client, criar_conta_ativa):
+    account_id = criar_conta_ativa()
+    _criar_parceiro(client)
+    _criar_regra_parceiro(client, percentual=3.0)
+    chave = _chave("0012")
+    sefaz_adapter_padrao.programar_indisponibilidade(chave)
+
+    resp = _submeter(client, account_id, chave, "nf_sefaz_fora_1")
+    assert resp.json()["status"] == "recebida"
+    submissao_id = resp.json()["submissao_id"]
+
+    # portal continua fora: fica 'recebida' (em analise), nunca rejeitada
+    detalhe = client.get(f"/v1/notas-fiscais/submissoes/{submissao_id}").json()
+    assert detalhe["status"] == "recebida"
+
+    # portal volta: o proprio GET de status reprocessa e credita
+    sefaz_adapter_padrao.restaurar_disponibilidade(chave)
+    _programar_sefaz_valida(chave, valor_total="100.00")
+    detalhe = client.get(f"/v1/notas-fiscais/submissoes/{submissao_id}").json()
+    assert detalhe["status"] == "creditada"
+    assert detalhe["coins_creditados"] == "3.00"
 
 
 def test_nota_fora_da_janela_usa_48h_na_mensagem_nunca_24h(client, criar_conta_ativa):

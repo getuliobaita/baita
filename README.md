@@ -97,7 +97,7 @@ selecionada por variável de ambiente. **Sem as env vars, tudo roda em mock**
 | Pagamento PIX | `capitalizacao/gateway_pagarme.py` | **real, em produção** | `GATEWAY_PROVIDER=pagarme` + `PAGARME_SECRET_KEY` + `PAGARME_WEBHOOK_TOKEN` |
 | NFS-e da venda | `fiscal/adapter.py` (NFe.io) | pronto, aguardando código municipal | `NFE_PROVIDER=nfeio` + `NFEIO_API_KEY` + `NFEIO_COMPANY_ID` |
 | WhatsApp | `notificacoes/whatsapp.py` | mock (loga a mensagem) | implementar adapter da API oficial |
-| SEFAZ (NF parceiro) | `notas_fiscais/sefaz_adapter.py` | mock | exige credenciamento por UF |
+| SEFAZ (NF parceiro) | `notas_fiscais/sefaz_adapter.py` (Infosimples) | **pronto** | `SEFAZ_PROVIDER=infosimples` + `INFOSIMPLES_TOKEN` |
 | OCR de nota | `notas_fiscais/ocr_adapter.py` | mock (tudo → revisão manual) | contratar serviço de OCR |
 | Fornecedor de resgate | `resgates/provider_adapter.py` | mock | fechar agregador de catálogo |
 | Cupom/link afiliado | `beneficios/adapter.py` | mock | fechar rede de afiliados |
