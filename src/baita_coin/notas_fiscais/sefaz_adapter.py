@@ -62,6 +62,9 @@ class MockSefazAdapter(SefazAdapter):
     def __init__(self) -> None:
         self._respostas: Dict[str, ResultadoConsultaSefaz] = {}
         self._indisponiveis: set = set()
+        # historico de chaves consultadas -- os testes usam pra provar que o
+        # throttle evita consultas repetidas (que em producao sao cobradas)
+        self.consultas_realizadas: List[str] = []
 
     def programar_resposta(self, chave_acesso: str, resposta: ResultadoConsultaSefaz) -> None:
         self._respostas[chave_acesso] = resposta
@@ -73,6 +76,7 @@ class MockSefazAdapter(SefazAdapter):
         self._indisponiveis.discard(chave_acesso)
 
     def consultar(self, uf: str, chave_acesso: str) -> ResultadoConsultaSefaz:
+        self.consultas_realizadas.append(chave_acesso)
         if chave_acesso in self._indisponiveis:
             raise SefazIndisponivel("indisponibilidade programada no mock")
         return self._respostas.get(chave_acesso, ResultadoConsultaSefaz(valido=False))
@@ -80,6 +84,7 @@ class MockSefazAdapter(SefazAdapter):
     def reset(self) -> None:
         self._respostas.clear()
         self._indisponiveis.clear()
+        self.consultas_realizadas.clear()
 
 
 # ---------------------------------------------------------------------------

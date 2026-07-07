@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     sefaz_provider: str = "mock"
     infosimples_token: Optional[str] = None
+    # Intervalo minimo entre retentativas de consulta da MESMA nota (cada
+    # consulta e cobrada) -- o GET de status so reconsulta depois disso.
+    sefaz_reconsulta_intervalo_segundos: int = 300
 
 
 settings = Settings()

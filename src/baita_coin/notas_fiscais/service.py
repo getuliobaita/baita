@@ -19,6 +19,7 @@ from fastapi import BackgroundTasks
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
+from baita_coin.config import settings
 from baita_coin.notas_fiscais import repository as repo
 from baita_coin.notas_fiscais.constants import (
     STATUS_RECEBIDA,
@@ -161,9 +162,14 @@ def submeter_nota_fiscal(
 
 def processar_submissao(engine: Engine, sefaz_adapter: SefazAdapter, submissao_id: UUID) -> None:
     with engine.begin() as conn:
-        pendente = repo.get_submissao(conn, submissao_id)
-        if pendente is None or pendente.status != STATUS_RECEBIDA:
-            return  # ja processada (redelivery) ou nao existe -- idempotente
+        # Claim atomico com throttle: cada consulta ao provedor e PAGA, entao
+        # a mesma nota so e reconsultada apos o intervalo configurado --
+        # mesmo com o app fazendo polling de status a cada poucos segundos.
+        pendente = repo.claim_tentativa_consulta(
+            conn, submissao_id, settings.sefaz_reconsulta_intervalo_segundos
+        )
+        if pendente is None:
+            return  # ja processada, inexistente, ou tentativa recente demais
         uf, chave_acesso = pendente.uf, pendente.chave_acesso
 
     # A consulta roda FORA da transacao: com o adapter real e I/O de rede

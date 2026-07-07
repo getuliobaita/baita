@@ -19,6 +19,31 @@ def get_parceiro_por_cnpj(conn: Connection, cnpj: str) -> Optional[Row]:
     return conn.execute(text("SELECT * FROM parceiros WHERE cnpj = :cnpj"), {"cnpj": cnpj}).first()
 
 
+def claim_tentativa_consulta(
+    conn: Connection, submissao_id: UUID, intervalo_segundos: int
+) -> Optional[Row]:
+    """Reserva atomicamente o direito de consultar a SEFAZ pra esta nota.
+
+    Devolve a submissao SE ela ainda esta 'recebida' E a ultima tentativa
+    foi ha mais de `intervalo_segundos` (ou nunca houve). Como e um UPDATE
+    condicional, duas chamadas concorrentes nunca gastam duas consultas.
+    """
+    return conn.execute(
+        text(
+            """
+            UPDATE nf_submissoes
+            SET ultima_tentativa_em = now()
+            WHERE submissao_id = :id
+              AND status = 'recebida'
+              AND (ultima_tentativa_em IS NULL
+                   OR ultima_tentativa_em < now() - make_interval(secs => :intervalo))
+            RETURNING *
+            """
+        ),
+        {"id": str(submissao_id), "intervalo": intervalo_segundos},
+    ).first()
+
+
 def list_submissoes(conn: Connection, status: Optional[str], limite: int):
     filtro = "WHERE s.status = :status" if status else ""
     return conn.execute(

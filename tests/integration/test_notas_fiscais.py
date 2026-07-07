@@ -173,7 +173,12 @@ def test_fila_admin_lista_submissoes_com_motivo(client, criar_conta_ativa):
     assert [i["status"] for i in so_rejeitadas] == ["rejeitada"]
 
 
-def test_sefaz_fora_do_ar_mantem_em_analise_e_reprocessa_no_proximo_get(client, criar_conta_ativa):
+def test_sefaz_fora_do_ar_mantem_em_analise_e_reprocessa_no_proximo_get(
+    client, criar_conta_ativa, monkeypatch
+):
+    from baita_coin.config import settings
+
+    monkeypatch.setattr(settings, "sefaz_reconsulta_intervalo_segundos", 0)
     account_id = criar_conta_ativa()
     _criar_parceiro(client)
     _criar_regra_parceiro(client, percentual=3.0)
@@ -194,6 +199,26 @@ def test_sefaz_fora_do_ar_mantem_em_analise_e_reprocessa_no_proximo_get(client, 
     detalhe = client.get(f"/v1/notas-fiscais/submissoes/{submissao_id}").json()
     assert detalhe["status"] == "creditada"
     assert detalhe["coins_creditados"] == "3.00"
+
+
+def test_polling_de_status_nao_gasta_consultas_repetidas(client, criar_conta_ativa):
+    """Cada consulta ao provedor e paga: com a nota travada 'em analise', o
+    polling do app NAO pode disparar uma consulta por GET -- so a primeira
+    tentativa dentro do intervalo de reconsulta (padrao 5 min)."""
+    account_id = criar_conta_ativa()
+    _criar_parceiro(client)
+    _criar_regra_parceiro(client)
+    chave = _chave("0015")
+    sefaz_adapter_padrao.programar_indisponibilidade(chave)
+
+    resp = _submeter(client, account_id, chave, "nf_throttle_1")
+    submissao_id = resp.json()["submissao_id"]
+    consultas_apos_submissao = len(sefaz_adapter_padrao.consultas_realizadas)
+
+    for _ in range(5):  # polling do app
+        assert client.get(f"/v1/notas-fiscais/submissoes/{submissao_id}").json()["status"] == "recebida"
+
+    assert len(sefaz_adapter_padrao.consultas_realizadas) == consultas_apos_submissao == 1
 
 
 def test_nota_fora_da_janela_usa_48h_na_mensagem_nunca_24h(client, criar_conta_ativa):
