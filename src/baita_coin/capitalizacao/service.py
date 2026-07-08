@@ -450,6 +450,7 @@ def listar_meus_numeros(
                     numero=r.numero,
                     status=r.status,
                     sorteio_id=r.sorteio_id,
+                    titulo=r.titulo,
                     data_sorteio=r.data_sorteio,
                     sorteio_status=r.sorteio_status,
                 )

@@ -483,7 +483,8 @@ def get_numeros_sorte_da_conta(
     return conn.execute(
         text(
             f"""
-            SELECT n.numero, n.status, n.sorteio_id, n.criado_em, s.data_sorteio, s.status AS sorteio_status
+            SELECT n.numero, n.status, n.sorteio_id, n.criado_em, s.titulo,
+                   s.data_sorteio, s.status AS sorteio_status
             FROM numeros_sorte n
             JOIN sorteios s ON s.sorteio_id = n.sorteio_id
             WHERE n.account_id = :account_id {filtro_sorteio}

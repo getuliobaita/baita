@@ -90,6 +90,7 @@ class NumeroSorteItem(BaseModel):
     numero: int
     status: str
     sorteio_id: UUID
+    titulo: Optional[str] = None
     data_sorteio: datetime
     sorteio_status: str
 
