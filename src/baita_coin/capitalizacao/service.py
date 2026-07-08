@@ -95,18 +95,72 @@ def abrir_sorteio(engine: Engine, payload: AbrirSorteioRequest) -> SorteioRespon
         return SorteioResponse(sorteio_id=row.sorteio_id, data_sorteio=row.data_sorteio, status=row.status)
 
 
+def _sorteio_admin_response(row) -> SorteioAdminResponse:
+    return SorteioAdminResponse(
+        sorteio_id=row.sorteio_id,
+        titulo=row.titulo,
+        data_sorteio=row.data_sorteio,
+        periodo_inicio=row.periodo_inicio,
+        periodo_fim=row.periodo_fim,
+        data_apuracao=row.data_apuracao,
+        data_divulgacao=row.data_divulgacao,
+        premios=row.premios,
+        status=row.status,
+        total_numeros=getattr(row, "total_numeros", 0),
+        tem_apuracao=getattr(row, "tem_apuracao", False),
+    )
+
+
 def listar_sorteios(engine: Engine) -> List[SorteioAdminResponse]:
     with engine.begin() as conn:
-        return [
-            SorteioAdminResponse(
-                sorteio_id=r.sorteio_id,
-                data_sorteio=r.data_sorteio,
-                status=r.status,
-                total_numeros=r.total_numeros,
-                tem_apuracao=r.tem_apuracao,
-            )
-            for r in repo.list_sorteios(conn)
-        ]
+        return [_sorteio_admin_response(r) for r in repo.list_sorteios(conn)]
+
+
+def _premios_para_jsonb(premios) -> str:
+    return json.dumps(
+        [{"valor": str(arredondar_centavos(p.valor)), "quantidade": p.quantidade} for p in premios]
+    )
+
+
+_PREMIOS_PADRAO_JSONB = json.dumps(
+    [{"valor": "50000.00", "quantidade": 1}, {"valor": "25000.00", "quantidade": 2}]
+)
+
+
+def criar_sorteio_admin(engine: Engine, payload) -> SorteioAdminResponse:
+    with engine.begin() as conn:
+        dados = {
+            "titulo": payload.titulo,
+            "data_sorteio": payload.data_sorteio,
+            "periodo_inicio": payload.periodo_inicio,
+            "periodo_fim": payload.periodo_fim,
+            "data_apuracao": payload.data_apuracao,
+            "data_divulgacao": payload.data_divulgacao,
+            # sem premios no payload, usa o padrao da edicao atual
+            "premios": _premios_para_jsonb(payload.premios) if payload.premios else _PREMIOS_PADRAO_JSONB,
+        }
+        row = repo.insert_sorteio_completo(conn, uuid4(), dados)
+        return _sorteio_admin_response(row)
+
+
+def atualizar_sorteio(engine: Engine, sorteio_id: UUID, payload) -> SorteioAdminResponse:
+    with engine.begin() as conn:
+        existente = repo.get_sorteio(conn, sorteio_id)
+        if existente is None:
+            raise SorteioNaoEncontrado("sorteio_id nao encontrado", detalhes={"sorteio_id": str(sorteio_id)})
+        campos = {
+            "titulo": payload.titulo,
+            "data_sorteio": payload.data_sorteio,
+            "periodo_inicio": payload.periodo_inicio,
+            "periodo_fim": payload.periodo_fim,
+            "data_apuracao": payload.data_apuracao,
+            "data_divulgacao": payload.data_divulgacao,
+            "premios": _premios_para_jsonb(payload.premios) if payload.premios else None,
+            "status": payload.status,
+        }
+        repo.atualizar_sorteio(conn, sorteio_id, campos)
+        atualizado = next(s for s in repo.list_sorteios(conn) if str(s.sorteio_id) == str(sorteio_id))
+        return _sorteio_admin_response(atualizado)
 
 
 # ---------------------------------------------------------------------------
@@ -514,8 +568,23 @@ def gerar_relatorio_compradores(engine: Engine) -> RelatorioCompradoresResponse:
 _CONSTRAINT_APURACAO_UNICA = "apuracoes_sorteio_id_serie_key"
 
 
-def _premios_da_edicao(payload: ExecutarApuracaoRequest) -> List[Decimal]:
-    brutos = payload.premios or [Decimal(str(v)) for v in motor_apuracao.PREMIOS_PADRAO_REAIS]
+def _expandir_premios_do_sorteio(premios_jsonb) -> List[Decimal]:
+    """[{"valor":"50000.00","quantidade":1},...] -> [50000, 25000, 25000]."""
+    flat = []
+    for item in premios_jsonb or []:
+        for _ in range(int(item["quantidade"])):
+            flat.append(Decimal(str(item["valor"])))
+    return flat
+
+
+def _premios_da_edicao(payload: ExecutarApuracaoRequest, sorteio) -> List[Decimal]:
+    # prioridade: premios do payload > premios cadastrados no sorteio > padrao
+    if payload.premios:
+        brutos = payload.premios
+    else:
+        brutos = _expandir_premios_do_sorteio(sorteio.premios) or [
+            Decimal(str(v)) for v in motor_apuracao.PREMIOS_PADRAO_REAIS
+        ]
     return [arredondar_centavos(Decimal(str(p))) for p in brutos]  # money sempre com centavos
 
 
@@ -553,7 +622,7 @@ def _computar_apuracao(conn, sorteio_id: UUID, payload: ExecutarApuracaoRequest)
     sorteio = repo.get_sorteio(conn, sorteio_id)
     if sorteio is None:
         raise SorteioNaoEncontrado("sorteio_id nao encontrado", detalhes={"sorteio_id": str(sorteio_id)})
-    premios = _premios_da_edicao(payload)
+    premios = _premios_da_edicao(payload, sorteio)
     distribuidos = repo.get_numeros_distribuidos(conn, sorteio_id, payload.serie)
     dono_por_numero = {r.numero: r.account_id for r in distribuidos}
     resultado = motor_apuracao.apurar(payload.premios_loteria, dono_por_numero.keys(), len(premios))

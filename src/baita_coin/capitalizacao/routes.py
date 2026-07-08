@@ -18,6 +18,7 @@ from baita_coin.capitalizacao.schemas import (
     ApuracaoResponse,
     AtualizarCampanhaRequest,
     AtualizarPlanoRequest,
+    AtualizarSorteioRequest,
     CampanhaResponse,
     CampanhasAtivasResponse,
     CompraDetalheResponse,
@@ -25,6 +26,7 @@ from baita_coin.capitalizacao.schemas import (
     CriarCompraRequest,
     CriarCompraResponse,
     CriarPlanoRequest,
+    CriarSorteioAdminRequest,
     ExecutarApuracaoRequest,
     MeusNumerosResponse,
     PlanoResponse,
@@ -189,6 +191,20 @@ def abrir_sorteio_endpoint(payload: AbrirSorteioRequest, engine: Engine = Depend
 @router.get("/v1/admin/sorteios", response_model=List[SorteioAdminResponse])
 def listar_sorteios_endpoint(engine: Engine = Depends(get_engine)) -> List[SorteioAdminResponse]:
     return service.listar_sorteios(engine)
+
+
+@router.post("/v1/admin/sorteios", response_model=SorteioAdminResponse, status_code=201)
+def criar_sorteio_admin_endpoint(
+    payload: CriarSorteioAdminRequest, engine: Engine = Depends(get_engine)
+) -> SorteioAdminResponse:
+    return service.criar_sorteio_admin(engine, payload)
+
+
+@router.patch("/v1/admin/sorteios/{sorteio_id}", response_model=SorteioAdminResponse)
+def atualizar_sorteio_endpoint(
+    sorteio_id: UUID, payload: AtualizarSorteioRequest, engine: Engine = Depends(get_engine)
+) -> SorteioAdminResponse:
+    return service.atualizar_sorteio(engine, sorteio_id, payload)
 
 
 @router.post("/v1/admin/sorteios/{sorteio_id}/apuracao/simular", response_model=ApuracaoResponse)

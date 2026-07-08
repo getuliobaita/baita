@@ -347,6 +347,46 @@ def insert_sorteio(conn: Connection, sorteio_id: UUID, data_sorteio: datetime) -
     ).first()
 
 
+def insert_sorteio_completo(conn: Connection, sorteio_id: UUID, dados: dict) -> Row:
+    return conn.execute(
+        text(
+            """
+            INSERT INTO sorteios
+                (sorteio_id, titulo, data_sorteio, periodo_inicio, periodo_fim,
+                 data_apuracao, data_divulgacao, premios)
+            VALUES
+                (:sorteio_id, :titulo, :data_sorteio, :periodo_inicio, :periodo_fim,
+                 :data_apuracao, :data_divulgacao, CAST(:premios AS jsonb))
+            RETURNING *
+            """
+        ),
+        {"sorteio_id": str(sorteio_id), **dados},
+    ).first()
+
+
+def atualizar_sorteio(conn: Connection, sorteio_id: UUID, campos: dict) -> Row:
+    """Atualiza apenas os campos fornecidos (os demais ficam intactos via
+    COALESCE). `premios` chega como JSON string ou None."""
+    return conn.execute(
+        text(
+            """
+            UPDATE sorteios SET
+                titulo          = COALESCE(:titulo, titulo),
+                data_sorteio    = COALESCE(:data_sorteio, data_sorteio),
+                periodo_inicio  = COALESCE(:periodo_inicio, periodo_inicio),
+                periodo_fim     = COALESCE(:periodo_fim, periodo_fim),
+                data_apuracao   = COALESCE(:data_apuracao, data_apuracao),
+                data_divulgacao = COALESCE(:data_divulgacao, data_divulgacao),
+                premios         = COALESCE(CAST(:premios AS jsonb), premios),
+                status          = COALESCE(:status, status)
+            WHERE sorteio_id = :sorteio_id
+            RETURNING *
+            """
+        ),
+        {"sorteio_id": str(sorteio_id), **campos},
+    ).first()
+
+
 _MAX_RODADAS_SORTEIO_NUMERO = 60
 
 
@@ -465,7 +505,7 @@ def list_sorteios(conn: Connection) -> List[Row]:
     return conn.execute(
         text(
             """
-            SELECT s.sorteio_id, s.data_sorteio, s.status,
+            SELECT s.*,
                    (SELECT count(*) FROM numeros_sorte n
                     WHERE n.sorteio_id = s.sorteio_id AND n.status = 'ativo') AS total_numeros,
                    EXISTS(SELECT 1 FROM apuracoes a WHERE a.sorteio_id = s.sorteio_id) AS tem_apuracao

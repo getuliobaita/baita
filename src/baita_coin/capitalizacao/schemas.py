@@ -182,9 +182,41 @@ class SorteioResponse(BaseModel):
     status: str
 
 
+class PremioItem(BaseModel):
+    valor: Decimal
+    quantidade: int = Field(ge=1)
+
+
+class CriarSorteioAdminRequest(BaseModel):
+    titulo: Optional[str] = Field(default=None, max_length=120)
+    data_sorteio: datetime
+    periodo_inicio: Optional[date] = None
+    periodo_fim: Optional[date] = None
+    data_apuracao: Optional[date] = None
+    data_divulgacao: Optional[date] = None
+    premios: List[PremioItem] = Field(default_factory=list)
+
+
+class AtualizarSorteioRequest(BaseModel):
+    titulo: Optional[str] = Field(default=None, max_length=120)
+    data_sorteio: Optional[datetime] = None
+    periodo_inicio: Optional[date] = None
+    periodo_fim: Optional[date] = None
+    data_apuracao: Optional[date] = None
+    data_divulgacao: Optional[date] = None
+    premios: Optional[List[PremioItem]] = None
+    status: Optional[str] = None
+
+
 class SorteioAdminResponse(BaseModel):
     sorteio_id: UUID
+    titulo: Optional[str] = None
     data_sorteio: datetime
+    periodo_inicio: Optional[date] = None
+    periodo_fim: Optional[date] = None
+    data_apuracao: Optional[date] = None
+    data_divulgacao: Optional[date] = None
+    premios: List[PremioItem]
     status: str
     total_numeros: int
     tem_apuracao: bool
