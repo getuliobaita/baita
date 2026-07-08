@@ -195,6 +195,7 @@ class CriarSorteioAdminRequest(BaseModel):
     data_apuracao: Optional[date] = None
     data_divulgacao: Optional[date] = None
     premios: List[PremioItem] = Field(default_factory=list)
+    banner_url: Optional[str] = None
 
 
 class AtualizarSorteioRequest(BaseModel):
@@ -205,6 +206,7 @@ class AtualizarSorteioRequest(BaseModel):
     data_apuracao: Optional[date] = None
     data_divulgacao: Optional[date] = None
     premios: Optional[List[PremioItem]] = None
+    banner_url: Optional[str] = None
     status: Optional[str] = None
 
 
@@ -217,9 +219,25 @@ class SorteioAdminResponse(BaseModel):
     data_apuracao: Optional[date] = None
     data_divulgacao: Optional[date] = None
     premios: List[PremioItem]
+    banner_url: Optional[str] = None
     status: str
     total_numeros: int
     tem_apuracao: bool
+
+
+class SorteioPublicoResponse(BaseModel):
+    """O que o app do cliente mostra do sorteio vigente."""
+
+    sorteio_id: UUID
+    titulo: Optional[str] = None
+    banner_url: Optional[str] = None
+    periodo_inicio: Optional[date] = None
+    periodo_fim: Optional[date] = None
+    data_apuracao: Optional[date] = None
+    data_divulgacao: Optional[date] = None
+    premios: List[PremioItem]
+    premio_total: Decimal
+    total_ganhadores: int
 
 
 # ---- Apuracao do sorteio (auditoria) ----

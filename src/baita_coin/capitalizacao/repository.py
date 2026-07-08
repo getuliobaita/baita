@@ -353,10 +353,10 @@ def insert_sorteio_completo(conn: Connection, sorteio_id: UUID, dados: dict) -> 
             """
             INSERT INTO sorteios
                 (sorteio_id, titulo, data_sorteio, periodo_inicio, periodo_fim,
-                 data_apuracao, data_divulgacao, premios)
+                 data_apuracao, data_divulgacao, premios, banner_url)
             VALUES
                 (:sorteio_id, :titulo, :data_sorteio, :periodo_inicio, :periodo_fim,
-                 :data_apuracao, :data_divulgacao, CAST(:premios AS jsonb))
+                 :data_apuracao, :data_divulgacao, CAST(:premios AS jsonb), :banner_url)
             RETURNING *
             """
         ),
@@ -378,6 +378,7 @@ def atualizar_sorteio(conn: Connection, sorteio_id: UUID, campos: dict) -> Row:
                 data_apuracao   = COALESCE(:data_apuracao, data_apuracao),
                 data_divulgacao = COALESCE(:data_divulgacao, data_divulgacao),
                 premios         = COALESCE(CAST(:premios AS jsonb), premios),
+                banner_url      = COALESCE(:banner_url, banner_url),
                 status          = COALESCE(:status, status)
             WHERE sorteio_id = :sorteio_id
             RETURNING *
@@ -496,6 +497,15 @@ def get_numeros_sorte_da_conta(
 def get_sorteio(conn: Connection, sorteio_id: UUID) -> Optional[Row]:
     return conn.execute(
         text("SELECT * FROM sorteios WHERE sorteio_id = :id"), {"id": str(sorteio_id)}
+    ).first()
+
+
+def get_sorteio_vigente(conn: Connection) -> Optional[Row]:
+    """O sorteio aberto atual -- mesmo criterio de get_sorteio_aberto_for_update
+    (o mais antigo aberto, pra onde os numeros novos vao), pra o app exibir
+    exatamente a edicao em que o cliente esta concorrendo."""
+    return conn.execute(
+        text("SELECT * FROM sorteios WHERE status = 'aberto' ORDER BY criado_em ASC LIMIT 1")
     ).first()
 
 

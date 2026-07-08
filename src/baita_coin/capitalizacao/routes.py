@@ -32,6 +32,7 @@ from baita_coin.capitalizacao.schemas import (
     PlanoResponse,
     RelatorioCompradoresResponse,
     SorteioAdminResponse,
+    SorteioPublicoResponse,
     SorteioResponse,
     WebhookPagamentoRequest,
     WebhookPagamentoResponse,
@@ -186,6 +187,13 @@ def listar_meus_numeros_endpoint(
 @router.post("/v1/internal/sorteios", response_model=SorteioResponse, status_code=201)
 def abrir_sorteio_endpoint(payload: AbrirSorteioRequest, engine: Engine = Depends(get_engine)) -> SorteioResponse:
     return service.abrir_sorteio(engine, payload)
+
+
+@router.get("/v1/sorteios/vigente", response_model=Optional[SorteioPublicoResponse])
+def sorteio_vigente_endpoint(engine: Engine = Depends(get_engine)) -> Optional[SorteioPublicoResponse]:
+    """Publico: o sorteio atual pro app do cliente (banner, prêmios, datas).
+    Devolve null quando nao ha sorteio aberto."""
+    return service.consultar_sorteio_publico(engine)
 
 
 @router.get("/v1/admin/sorteios", response_model=List[SorteioAdminResponse])

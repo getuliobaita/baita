@@ -65,6 +65,7 @@ from baita_coin.capitalizacao.schemas import (
     RegraAplicada,
     RelatorioCompradoresResponse,
     SorteioAdminResponse,
+    SorteioPublicoResponse,
     SorteioResponse,
     WebhookPagamentoRequest,
     WebhookPagamentoResponse,
@@ -105,10 +106,37 @@ def _sorteio_admin_response(row) -> SorteioAdminResponse:
         data_apuracao=row.data_apuracao,
         data_divulgacao=row.data_divulgacao,
         premios=row.premios,
+        banner_url=row.banner_url,
         status=row.status,
         total_numeros=getattr(row, "total_numeros", 0),
         tem_apuracao=getattr(row, "tem_apuracao", False),
     )
+
+
+def consultar_sorteio_publico(engine: Engine) -> Optional[SorteioPublicoResponse]:
+    """Sorteio vigente para o app do cliente. None se nenhum aberto."""
+    with engine.begin() as conn:
+        row = repo.get_sorteio_vigente(conn)
+        if row is None:
+            return None
+        premios = row.premios or []
+        premio_total = sum(
+            (arredondar_centavos(Decimal(str(p["valor"]))) * int(p["quantidade"]) for p in premios),
+            Decimal("0"),
+        )
+        total_ganhadores = sum(int(p["quantidade"]) for p in premios)
+        return SorteioPublicoResponse(
+            sorteio_id=row.sorteio_id,
+            titulo=row.titulo,
+            banner_url=row.banner_url,
+            periodo_inicio=row.periodo_inicio,
+            periodo_fim=row.periodo_fim,
+            data_apuracao=row.data_apuracao,
+            data_divulgacao=row.data_divulgacao,
+            premios=premios,
+            premio_total=premio_total,
+            total_ganhadores=total_ganhadores,
+        )
 
 
 def listar_sorteios(engine: Engine) -> List[SorteioAdminResponse]:
@@ -138,6 +166,7 @@ def criar_sorteio_admin(engine: Engine, payload) -> SorteioAdminResponse:
             "data_divulgacao": payload.data_divulgacao,
             # sem premios no payload, usa o padrao da edicao atual
             "premios": _premios_para_jsonb(payload.premios) if payload.premios else _PREMIOS_PADRAO_JSONB,
+            "banner_url": payload.banner_url,
         }
         row = repo.insert_sorteio_completo(conn, uuid4(), dados)
         return _sorteio_admin_response(row)
@@ -156,6 +185,7 @@ def atualizar_sorteio(engine: Engine, sorteio_id: UUID, payload) -> SorteioAdmin
             "data_apuracao": payload.data_apuracao,
             "data_divulgacao": payload.data_divulgacao,
             "premios": _premios_para_jsonb(payload.premios) if payload.premios else None,
+            "banner_url": payload.banner_url,
             "status": payload.status,
         }
         repo.atualizar_sorteio(conn, sorteio_id, campos)

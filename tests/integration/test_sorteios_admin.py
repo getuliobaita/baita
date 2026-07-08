@@ -60,6 +60,29 @@ def test_editar_sorteio_muda_datas_e_premios(client):
     assert body["titulo"] == "Baita Beneficios - Edicao 2"
 
 
+def test_banner_e_endpoint_publico_do_sorteio_vigente(client):
+    # o sorteio semeado (aberto) e o vigente; damos a ele titulo, banner e premios
+    vigente = next(s for s in client.get("/v1/admin/sorteios").json() if s["status"] == "aberto")
+    client.patch(
+        f"/v1/admin/sorteios/{vigente['sorteio_id']}",
+        json={
+            "titulo": "Sorteio de R$100 mil",
+            "banner_url": "https://baita-coin-api.onrender.com/v1/anuncios/imagens/abc",
+            "periodo_fim": "2026-07-31",
+            "premios": [{"valor": "50000.00", "quantidade": 1}, {"valor": "25000.00", "quantidade": 2}],
+        },
+    )
+
+    publico = client.get("/v1/sorteios/vigente")
+    assert publico.status_code == 200
+    body = publico.json()
+    assert body["titulo"] == "Sorteio de R$100 mil"
+    assert body["banner_url"].endswith("/abc")
+    assert body["periodo_fim"] == "2026-07-31"
+    assert body["premio_total"] == "100000.00"  # 1x50k + 2x25k
+    assert body["total_ganhadores"] == 3
+
+
 def test_editar_sorteio_inexistente_retorna_404(client):
     resp = client.patch(f"/v1/admin/sorteios/{uuid4()}", json={"titulo": "x"})
     assert resp.status_code == 404
