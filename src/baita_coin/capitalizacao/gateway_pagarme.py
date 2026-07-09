@@ -192,7 +192,7 @@ class PagarmeGatewayAdapter(GatewayPagamentoAdapter):
             )
             raise ErroGatewayPagamento(
                 "O gateway recusou a criacao da assinatura.",
-                detalhes={"status_http": resposta.status_code},
+                detalhes={"status_http": resposta.status_code, **_motivo_gateway(resposta)},
             )
 
         dados = resposta.json()
@@ -228,6 +228,21 @@ class PagarmeGatewayAdapter(GatewayPagamentoAdapter):
                 "O gateway nao confirmou o cancelamento da assinatura.",
                 detalhes={"status_http": resposta.status_code},
             )
+
+
+def _motivo_gateway(resposta) -> Dict[str, Any]:
+    """Extrai so as MENSAGENS de erro do corpo da Pagar.me (nunca dados de
+    cartao/cliente) pra diagnostico sem precisar abrir o log do servidor."""
+    try:
+        corpo = resposta.json()
+    except ValueError:
+        return {}
+    saida: Dict[str, Any] = {}
+    if corpo.get("message"):
+        saida["motivo_gateway"] = str(corpo["message"])[:300]
+    if corpo.get("errors"):
+        saida["erros_gateway"] = str(corpo["errors"])[:500]
+    return saida
 
 
 def _phones(celular: Optional[str]) -> Dict[str, Any]:
