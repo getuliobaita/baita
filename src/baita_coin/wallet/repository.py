@@ -29,6 +29,13 @@ def get_account_for_update(conn: Connection, account_id: UUID) -> Optional[Row]:
     ).first()
 
 
+def set_foto_url(conn: Connection, account_id: UUID, foto_url: str) -> Optional[Row]:
+    return conn.execute(
+        text("UPDATE wallet_accounts SET foto_url = :foto_url WHERE account_id = :id RETURNING *"),
+        {"foto_url": foto_url, "id": str(account_id)},
+    ).first()
+
+
 def completar_cadastro(conn: Connection, account_id: UUID, dados: dict) -> Row:
     """Preenche APENAS campos ainda nulos (COALESCE com o valor existente
     primeiro) -- completar cadastro nunca sobrescreve dado ja gravado."""

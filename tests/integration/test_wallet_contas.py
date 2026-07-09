@@ -112,3 +112,44 @@ def test_repostar_cpf_existente_completa_cadastro_sem_sobrescrever(client):
         "/v1/wallet/contas", json={"cpf": "77788899900", "nome": "Tentando Trocar"}
     )
     assert terceira.json()["nome"] == "Completa Depois"
+
+
+# PNG 1x1 valido -- bytes reais pra passar pela validacao de imagem
+_PNG_1X1 = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+    "0000000d49444154789c626001000000ffff03000006000557bfabd40000000049454e44ae426082"
+)
+
+
+def test_foto_de_perfil_persiste_e_volta_no_login(client):
+    conta = client.post("/v1/wallet/contas", json={"cpf": "55566677788"}).json()
+    account_id = conta["account_id"]
+    assert conta["foto_url"] is None
+
+    upload = client.post(
+        f"/v1/wallet/{account_id}/foto",
+        files={"arquivo": ("perfil.png", _PNG_1X1, "image/png")},
+    )
+    assert upload.status_code == 201
+    foto_url = upload.json()["foto_url"]
+    assert foto_url and foto_url.endswith(tuple("0123456789abcdef"))  # url da imagem
+
+    # persiste: consultar a conta por CPF (simula um novo login) traz a foto
+    de_novo = client.get("/v1/wallet/contas/cpf/55566677788").json()
+    assert de_novo["foto_url"] == foto_url
+
+    # e a imagem esta realmente servida
+    servida = client.get(foto_url.replace("https://baita-coin-api.onrender.com", ""))
+    assert servida.status_code == 200
+    assert servida.headers["content-type"] == "image/png"
+
+
+def test_foto_de_perfil_em_conta_inexistente_retorna_404(client):
+    import uuid
+
+    resp = client.post(
+        f"/v1/wallet/{uuid.uuid4()}/foto",
+        files={"arquivo": ("x.png", _PNG_1X1, "image/png")},
+    )
+    assert resp.status_code == 404
+    assert resp.json()["erro"]["codigo"] == "CONTA_NAO_ENCONTRADA"

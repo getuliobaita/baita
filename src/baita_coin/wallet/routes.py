@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, File, Response, UploadFile
 from sqlalchemy.engine import Engine
 
 from baita_coin.db import engine as default_engine
@@ -76,3 +76,12 @@ def registrar_evento_endpoint(
 @router.get("/v1/wallet/{account_id}/saldo", response_model=SaldoResponse)
 def obter_saldo_endpoint(account_id: UUID, engine: Engine = Depends(get_engine)) -> SaldoResponse:
     return service.consultar_saldo(engine, account_id)
+
+
+@router.post("/v1/wallet/{account_id}/foto", response_model=CriarContaResponse, status_code=201)
+async def definir_foto_endpoint(
+    account_id: UUID, arquivo: UploadFile = File(...), engine: Engine = Depends(get_engine)
+) -> CriarContaResponse:
+    """Sobe a foto de perfil e a vincula a conta (persistente entre logins)."""
+    dados = await arquivo.read()
+    return service.definir_foto_perfil(engine, account_id, arquivo.content_type or "", dados)

@@ -79,6 +79,7 @@ class ContaResponse(BaseModel):
     nome: Optional[str] = None
     email: Optional[str] = None
     celular: Optional[str] = None
+    foto_url: Optional[str] = None
     # true quando uma senha temporaria acabou de ser gerada e enviada por
     # WhatsApp (o app usa isso pra mostrar "te mandamos a senha no zap")
     senha_enviada_whatsapp: bool = False

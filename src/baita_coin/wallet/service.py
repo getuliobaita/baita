@@ -73,6 +73,7 @@ def _account_row_to_response(row: Row, senha_enviada_whatsapp: bool = False) -> 
         criado_em=row.criado_em,
         nome=getattr(row, "nome", None),
         email=getattr(row, "email", None),
+        foto_url=getattr(row, "foto_url", None),
         senha_enviada_whatsapp=senha_enviada_whatsapp,
         tem_senha=bool(getattr(row, "senha_hash", None)),
         celular=getattr(row, "celular", None),
@@ -381,6 +382,26 @@ def registrar_evento(engine: Engine, payload: EventoRequest) -> EventoResponse:
             raise EventoInvalido("falha ao registrar evento por conflito de idempotency_key")
         _validar_payload_compativel(existing, payload, coins, valor_reais)
         return _resposta_ja_processado(conn, existing)
+
+
+def definir_foto_perfil(
+    engine: Engine, account_id: UUID, content_type: str, dados: bytes
+) -> CriarContaResponse:
+    """Salva a foto de perfil (persistente) e devolve a conta com foto_url.
+
+    Reaproveita o armazenamento/entrega de imagens dos anuncios -- a foto
+    fica servida em /v1/anuncios/imagens/{id} e a URL vai pra conta, entao
+    ela sobrevive a novos logins (antes vivia so no navegador)."""
+    from baita_coin.anuncios import service as anuncios_service
+
+    with engine.begin() as conn:
+        if repo.get_account(conn, account_id) is None:
+            raise ContaNaoEncontrada("account_id nao encontrado", detalhes={"account_id": str(account_id)})
+
+    imagem = anuncios_service.salvar_imagem(engine, content_type, dados)
+    with engine.begin() as conn:
+        conta = repo.set_foto_url(conn, account_id, imagem["imagem_url"])
+        return _account_row_to_response(conta)
 
 
 def consultar_saldo(engine: Engine, account_id: UUID) -> SaldoResponse:
