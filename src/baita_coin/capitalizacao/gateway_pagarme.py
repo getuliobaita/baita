@@ -1,13 +1,14 @@
-"""Adapter real do Pagar.me (API Core v5) -- PIX.
+"""Adapter real do Pagar.me (API Core v5) -- PIX avulso + assinatura no cartao.
 
 Ativado por GATEWAY_PROVIDER=pagarme + PAGARME_SECRET_KEY no ambiente.
-Fluxo: cria um pedido com pagamento PIX; o QR/copia-e-cola volta na
-resposta e a confirmacao chega depois pelo webhook (order.paid) em
-POST /v1/webhooks/pagarme.
 
-Cartao de credito com recorrencia usa a API de assinaturas do Pagar.me,
-que e um fluxo separado (plano + assinatura + cobranca automatica) --
-proxima etapa da integracao; por ora este adapter atende PIX avulso.
+PIX: cria um pedido (/orders); QR volta na resposta e a confirmacao chega
+pelo webhook order.paid.
+
+Assinatura (cartao com recorrencia): POST /subscriptions com card_token --
+o cartao e tokenizado PELO APP direto na Pagar.me (chave publica pk_...),
+nunca passa pelo nosso backend (PCI). Cada ciclo cobrado gera o webhook
+invoice.paid, que credita o mes como uma compra normal.
 """
 import base64
 import logging
@@ -17,7 +18,11 @@ from uuid import UUID
 
 import requests
 
-from baita_coin.capitalizacao.gateway import GatewayPagamentoAdapter, ResultadoCobranca
+from baita_coin.capitalizacao.gateway import (
+    GatewayPagamentoAdapter,
+    ResultadoAssinatura,
+    ResultadoCobranca,
+)
 from baita_coin.wallet.errors import DomainError
 
 logger = logging.getLogger("baita.pagarme")
@@ -125,6 +130,104 @@ class PagarmeGatewayAdapter(GatewayPagamentoAdapter):
             pix_copia_cola=pix_copia_cola,
             checkout_url=transacao.get("qr_code_url"),
         )
+
+
+    def criar_assinatura(
+        self,
+        *,
+        assinatura_id: UUID,
+        valor_reais: Decimal,
+        card_token: str,
+        cliente: Optional[Dict[str, Any]] = None,
+    ) -> ResultadoAssinatura:
+        cliente = cliente or {}
+        if not cliente.get("cpf"):
+            raise ErroGatewayPagamento(
+                "Assinatura exige CPF do cliente na conta -- complete o cadastro."
+            )
+
+        payload = {
+            "payment_method": "credit_card",
+            "card_token": card_token,
+            "currency": "BRL",
+            "interval": "month",
+            "interval_count": 1,
+            "billing_type": "prepaid",  # cobra ja na criacao e a cada ciclo
+            "installments": 1,
+            "statement_descriptor": "BAITA",
+            "customer": {
+                "name": cliente.get("nome") or "Cliente Baita",
+                "email": cliente.get("email") or f"{cliente['cpf']}@sememail.baita",
+                "document": cliente["cpf"],
+                "document_type": "CPF",
+                "type": "individual",
+                "phones": _phones(cliente.get("celular")),
+            },
+            "items": [
+                {
+                    "description": "Baita Beneficios - clube mensal",
+                    "quantity": 1,
+                    "code": str(assinatura_id),
+                    "pricing_scheme": {"scheme_type": "unit", "price": int(valor_reais * 100)},
+                }
+            ],
+            "metadata": {"assinatura_id": str(assinatura_id)},
+            "code": str(assinatura_id),
+        }
+
+        try:
+            resposta = requests.post(
+                f"{_BASE_URL}/subscriptions",
+                json=payload,
+                headers={"Authorization": self._auth_header, "Content-Type": "application/json"},
+                timeout=self._timeout,
+            )
+        except requests.RequestException as exc:
+            logger.error("falha de rede ao criar assinatura no Pagar.me: %s", exc)
+            raise ErroGatewayPagamento("Nao conseguimos falar com o gateway de pagamento agora.") from exc
+
+        if resposta.status_code not in (200, 201):
+            logger.error(
+                "Pagar.me recusou a assinatura (%s): %s", resposta.status_code, resposta.text[:500]
+            )
+            raise ErroGatewayPagamento(
+                "O gateway recusou a criacao da assinatura.",
+                detalhes={"status_http": resposta.status_code},
+            )
+
+        dados = resposta.json()
+        status_gateway = dados.get("status", "")
+        cartao = dados.get("card") or {}
+        status = "ativa" if status_gateway in ("active", "future") else (
+            "recusada" if status_gateway in ("failed", "canceled") else "pendente"
+        )
+        return ResultadoAssinatura(
+            gateway="pagarme",
+            gateway_subscription_id=dados.get("id", ""),
+            status=status,
+            cartao_bandeira=cartao.get("brand"),
+            cartao_ultimos4=cartao.get("last_four_digits"),
+        )
+
+    def cancelar_assinatura(self, gateway_subscription_id: str) -> None:
+        try:
+            resposta = requests.delete(
+                f"{_BASE_URL}/subscriptions/{gateway_subscription_id}",
+                headers={"Authorization": self._auth_header},
+                timeout=self._timeout,
+            )
+        except requests.RequestException as exc:
+            logger.error("falha de rede ao cancelar assinatura no Pagar.me: %s", exc)
+            raise ErroGatewayPagamento("Nao conseguimos falar com o gateway pra cancelar agora.") from exc
+        if resposta.status_code not in (200, 204):
+            logger.error(
+                "Pagar.me nao cancelou a assinatura %s (%s): %s",
+                gateway_subscription_id, resposta.status_code, resposta.text[:300],
+            )
+            raise ErroGatewayPagamento(
+                "O gateway nao confirmou o cancelamento da assinatura.",
+                detalhes={"status_http": resposta.status_code},
+            )
 
 
 def _phones(celular: Optional[str]) -> Dict[str, Any]:

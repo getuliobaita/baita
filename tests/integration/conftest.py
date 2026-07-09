@@ -31,6 +31,7 @@ _TABELAS_EM_ORDEM_DE_LIMPEZA = [
     "numeros_sorte",
     "capitalizacao_titulos",
     "compras_capitalizacao",
+    "assinaturas",
     "nf_submissoes",
     "notas_servico",
     "resgates",

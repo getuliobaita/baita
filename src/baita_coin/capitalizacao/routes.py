@@ -16,12 +16,14 @@ from baita_coin.capitalizacao.gateway_pagarme import PagarmeGatewayAdapter
 from baita_coin.capitalizacao.schemas import (
     AbrirSorteioRequest,
     ApuracaoResponse,
+    AssinaturaResponse,
     AtualizarCampanhaRequest,
     AtualizarPlanoRequest,
     AtualizarSorteioRequest,
     CampanhaResponse,
     CampanhasAtivasResponse,
     CompraDetalheResponse,
+    CriarAssinaturaRequest,
     CriarCampanhaRequest,
     CriarCompraRequest,
     CriarCompraResponse,
@@ -29,6 +31,7 @@ from baita_coin.capitalizacao.schemas import (
     CriarSorteioAdminRequest,
     ExecutarApuracaoRequest,
     MeusNumerosResponse,
+    PagamentosConfigResponse,
     PlanoResponse,
     RelatorioCompradoresResponse,
     SorteioAdminResponse,
@@ -129,6 +132,18 @@ def webhook_pagarme_endpoint(
     metadata = dados.get("metadata") or {}
     compra_id = metadata.get("compra_id")
 
+    # Eventos de assinatura (cartao recorrente): cada fatura paga credita o
+    # ciclo; falha marca inadimplencia; cancelamento encerra.
+    if evento in ("invoice.paid", "invoice.payment_failed", "charge.payment_failed", "subscription.canceled"):
+        resultado_assinatura = service.processar_evento_assinatura(engine, evento, dados)
+        if resultado_assinatura.get("status") == "confirmado":
+            from baita_coin.fiscal.service import emitir_nota_da_compra_background
+
+            background_tasks.add_task(
+                emitir_nota_da_compra_background, engine, UUID(resultado_assinatura["compra_id"])
+            )
+        return {"recebido": True, **resultado_assinatura}
+
     # Eventos que nao interessam (ou sem vinculo com compra) sao aceitos e
     # ignorados -- devolver erro faria o Pagar.me ficar reenviando pra sempre.
     if evento not in ("order.paid", "order.payment_failed", "order.canceled") or not compra_id:
@@ -150,6 +165,49 @@ def webhook_pagarme_endpoint(
 
         background_tasks.add_task(emitir_nota_da_compra_background, engine, resultado.compra_id)
     return {"recebido": True, "processado": True, "status": resultado.status}
+
+
+@router.get("/v1/pagamentos/config", response_model=PagamentosConfigResponse)
+def pagamentos_config_endpoint() -> PagamentosConfigResponse:
+    """Config publica de pagamento pro app: qual gateway e a chave PUBLICA
+    (pk_...) usada pra tokenizar o cartao direto na Pagar.me."""
+    return PagamentosConfigResponse(
+        gateway=settings.gateway_provider,
+        pagarme_public_key=settings.pagarme_public_key,
+    )
+
+
+@router.post("/v1/assinaturas", response_model=AssinaturaResponse, status_code=201)
+def criar_assinatura_endpoint(
+    payload: CriarAssinaturaRequest,
+    engine: Engine = Depends(get_engine),
+    gateway_adapter: GatewayPagamentoAdapter = Depends(get_gateway_adapter),
+) -> AssinaturaResponse:
+    return service.criar_assinatura(engine, gateway_adapter, payload)
+
+
+@router.get("/v1/assinaturas/{assinatura_id}", response_model=AssinaturaResponse)
+def consultar_assinatura_endpoint(
+    assinatura_id: UUID, engine: Engine = Depends(get_engine)
+) -> AssinaturaResponse:
+    return service.consultar_assinatura(engine, assinatura_id)
+
+
+@router.post("/v1/assinaturas/{assinatura_id}/cancelar", response_model=AssinaturaResponse)
+def cancelar_assinatura_endpoint(
+    assinatura_id: UUID,
+    engine: Engine = Depends(get_engine),
+    gateway_adapter: GatewayPagamentoAdapter = Depends(get_gateway_adapter),
+) -> AssinaturaResponse:
+    return service.cancelar_assinatura(engine, gateway_adapter, assinatura_id)
+
+
+@router.get("/v1/wallet/{account_id}/assinatura", response_model=Optional[AssinaturaResponse])
+def assinatura_da_conta_endpoint(
+    account_id: UUID, engine: Engine = Depends(get_engine)
+) -> Optional[AssinaturaResponse]:
+    """Assinatura vigente da conta (null se nao houver)."""
+    return service.assinatura_da_conta(engine, account_id)
 
 
 @router.get("/v1/campanhas/ativas", response_model=CampanhasAtivasResponse)

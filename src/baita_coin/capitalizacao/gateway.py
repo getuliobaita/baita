@@ -24,6 +24,15 @@ class ResultadoCobranca:
     checkout_url: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class ResultadoAssinatura:
+    gateway: str
+    gateway_subscription_id: str
+    status: str  # "pendente" | "ativa" | "recusada"
+    cartao_bandeira: Optional[str] = None
+    cartao_ultimos4: Optional[str] = None
+
+
 class GatewayPagamentoAdapter(ABC):
     @abstractmethod
     def iniciar_cobranca(
@@ -36,6 +45,23 @@ class GatewayPagamentoAdapter(ABC):
     ) -> ResultadoCobranca:
         """`cliente`: dados de quem compra ({nome, cpf, email, celular}) --
         gateways reais (Pagar.me) exigem pelo menos nome + CPF."""
+        ...
+
+    @abstractmethod
+    def criar_assinatura(
+        self,
+        *,
+        assinatura_id: UUID,
+        valor_reais: Decimal,
+        card_token: str,
+        cliente: Optional[Dict[str, Any]] = None,
+    ) -> ResultadoAssinatura:
+        """Assinatura MENSAL no cartao. `card_token` vem da tokenizacao
+        feita pelo app direto no gateway (o cartao nunca passa por aqui)."""
+        ...
+
+    @abstractmethod
+    def cancelar_assinatura(self, gateway_subscription_id: str) -> None:
         ...
 
 
@@ -66,3 +92,27 @@ class MockGatewayPagamentoAdapter(GatewayPagamentoAdapter):
             pix_copia_cola=pix_fake,
             checkout_url=None,
         )
+
+    def criar_assinatura(
+        self,
+        *,
+        assinatura_id: UUID,
+        valor_reais: Decimal,
+        card_token: str,
+        cliente: Optional[Dict[str, Any]] = None,
+    ) -> ResultadoAssinatura:
+        # card_token "recusar" permite aos testes simularem cartao negado
+        if card_token == "recusar":
+            return ResultadoAssinatura(
+                gateway="mock", gateway_subscription_id="", status="recusada"
+            )
+        return ResultadoAssinatura(
+            gateway="mock",
+            gateway_subscription_id=f"sub_mock_{uuid4().hex[:12]}",
+            status="ativa",
+            cartao_bandeira="visa",
+            cartao_ultimos4="4242",
+        )
+
+    def cancelar_assinatura(self, gateway_subscription_id: str) -> None:
+        return None

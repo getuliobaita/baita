@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     gateway_provider: str = "mock"
     pagarme_secret_key: Optional[str] = None
     pagarme_webhook_token: Optional[str] = None
+    # Chave PUBLICA (pk_...): projetada pra viver no frontend -- o app usa
+    # pra tokenizar o cartao direto na Pagar.me (o cartao nunca passa por
+    # este backend). Exposta em GET /v1/pagamentos/config.
+    pagarme_public_key: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Emissao de nota fiscal de servico (NFS-e): "none" (padrao) ou "nfeio".

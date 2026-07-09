@@ -96,6 +96,7 @@ selecionada por variável de ambiente. **Sem as env vars, tudo roda em mock**
 | Integração | Adapter | Status | Ativação |
 |---|---|---|---|
 | Pagamento PIX | `capitalizacao/gateway_pagarme.py` | **real, em produção** | `GATEWAY_PROVIDER=pagarme` + `PAGARME_SECRET_KEY` + `PAGARME_WEBHOOK_TOKEN` |
+| Cartão recorrente | `capitalizacao/gateway_pagarme.py` (Subscriptions) | **pronto** | mesmas acima + `PAGARME_PUBLIC_KEY` (tokenização no app) |
 | NFS-e da venda | `fiscal/adapter.py` (NFe.io) | pronto, aguardando código municipal | `NFE_PROVIDER=nfeio` + `NFEIO_API_KEY` + `NFEIO_COMPANY_ID` |
 | WhatsApp | `notificacoes/whatsapp.py` | mock (loga a mensagem) | implementar adapter da API oficial |
 | SEFAZ (NF parceiro) | `notas_fiscais/sefaz_adapter.py` (Infosimples) | **pronto** | `SEFAZ_PROVIDER=infosimples` + `INFOSIMPLES_TOKEN` |
