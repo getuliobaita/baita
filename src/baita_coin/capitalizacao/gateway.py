@@ -12,6 +12,15 @@ from decimal import Decimal
 from typing import Any, Dict, Optional
 from uuid import UUID, uuid4
 
+from baita_coin.wallet.errors import DomainError
+
+
+class ErroGatewayMock(DomainError):
+    """Falha dura simulada do gateway (so o mock usa, em testes)."""
+
+    codigo = "ERRO_GATEWAY_PAGAMENTO"
+    status_code = 502
+
 
 @dataclass(frozen=True)
 class ResultadoCobranca:
@@ -101,7 +110,10 @@ class MockGatewayPagamentoAdapter(GatewayPagamentoAdapter):
         card_token: str,
         cliente: Optional[Dict[str, Any]] = None,
     ) -> ResultadoAssinatura:
-        # card_token "recusar" permite aos testes simularem cartao negado
+        # card_token "recusar" simula cartao negado; "erro_gateway" simula
+        # falha dura do gateway (ex: recorrencia nao habilitada na conta)
+        if card_token == "erro_gateway":
+            raise ErroGatewayMock("falha simulada do gateway")
         if card_token == "recusar":
             return ResultadoAssinatura(
                 gateway="mock", gateway_subscription_id="", status="recusada"

@@ -161,3 +161,15 @@ def _sub_id_do_banco(test_engine, assinatura_id: str) -> str:
             text("SELECT gateway_subscription_id FROM assinaturas WHERE assinatura_id = :id"),
             {"id": assinatura_id},
         ).scalar()
+
+
+def test_falha_dura_do_gateway_nao_trava_a_conta(client, criar_conta_ativa):
+    """Regressao: erro do gateway (ex: 412) deixava a assinatura orfa em
+    'aguardando_pagamento', bloqueando a conta pra sempre."""
+    account_id = criar_conta_ativa()
+    resp = _criar_assinatura(client, account_id, card_token="erro_gateway", idem="ass_falha")
+    assert resp.status_code == 502
+
+    # a conta NAO pode ficar travada: nova tentativa funciona
+    retry = _criar_assinatura(client, account_id, idem="ass_pos_falha")
+    assert retry.status_code == 201

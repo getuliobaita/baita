@@ -660,13 +660,23 @@ def criar_assinatura(
             return _assinatura_response(existing)
 
     # Chamada ao gateway FORA da transacao (I/O de rede) -- o registro local
-    # ja existe e garante a idempotencia.
-    resultado = gateway_adapter.criar_assinatura(
-        assinatura_id=assinatura_id,
-        valor_reais=valor_reais,
-        card_token=payload.card_token,
-        cliente=dados_cliente,
-    )
+    # ja existe e garante a idempotencia. QUALQUER falha aqui cancela o
+    # registro antes de propagar: sem isso, a assinatura ficaria orfa em
+    # 'aguardando_pagamento' e travaria a conta (ASSINATURA_JA_ATIVA) em
+    # todas as tentativas seguintes.
+    try:
+        resultado = gateway_adapter.criar_assinatura(
+            assinatura_id=assinatura_id,
+            valor_reais=valor_reais,
+            card_token=payload.card_token,
+            cliente=dados_cliente,
+        )
+    except Exception:
+        with engine.begin() as conn:
+            repo.atualizar_assinatura(
+                conn, assinatura_id, {"status": "cancelada", "cancelada_em": datetime.now(timezone.utc)}
+            )
+        raise
 
     if resultado.status == "recusada":
         # marca cancelada em transacao PROPRIA antes de levantar o erro --
