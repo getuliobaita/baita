@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import List, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class UsuarioListaItem(BaseModel):
@@ -67,3 +67,55 @@ class UsuarioDetalheResponse(BaseModel):
 class AtualizarUsuarioRequest(BaseModel):
     status: Optional[Literal["ativa", "suspensa", "bloqueada"]] = None
     tags: Optional[List[str]] = None
+    # edicao administrativa do cadastro (sobrescreve, diferente do fluxo do
+    # app que so completa campos vazios); cpf permite corrigir digitacao
+    cpf: Optional[str] = None
+    nome: Optional[str] = None
+    email: Optional[str] = None
+    celular: Optional[str] = None
+    data_nascimento: Optional[date] = None
+    cep: Optional[str] = None
+    logradouro: Optional[str] = None
+    numero: Optional[str] = None
+    complemento: Optional[str] = None
+    bairro: Optional[str] = None
+    cidade: Optional[str] = None
+    uf: Optional[str] = None
+
+    @field_validator("cpf")
+    @classmethod
+    def _cpf_11_digitos(cls, valor: Optional[str]) -> Optional[str]:
+        if valor is not None and (not valor.isdigit() or len(valor) != 11):
+            raise ValueError("cpf deve conter exatamente 11 digitos numericos")
+        return valor
+
+
+class CriarUsuarioAdminRequest(BaseModel):
+    cpf: str
+    nome: str
+    email: Optional[str] = None
+    celular: Optional[str] = None
+    data_nascimento: Optional[date] = None
+    cep: Optional[str] = None
+    logradouro: Optional[str] = None
+    numero: Optional[str] = None
+    complemento: Optional[str] = None
+    bairro: Optional[str] = None
+    cidade: Optional[str] = None
+    uf: Optional[str] = None
+    tags: List[str] = []
+
+    @field_validator("cpf")
+    @classmethod
+    def _cpf_11_digitos(cls, valor: str) -> str:
+        if not valor.isdigit() or len(valor) != 11:
+            raise ValueError("cpf deve conter exatamente 11 digitos numericos")
+        return valor
+
+
+class ResetDadosRequest(BaseModel):
+    confirmacao: str
+
+
+class ResetDadosResponse(BaseModel):
+    contas_apagadas: int

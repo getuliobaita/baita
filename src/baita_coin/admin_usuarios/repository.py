@@ -101,25 +101,102 @@ def get_ultimos_eventos(conn: Connection, account_id: UUID, limite: int = 10) ->
     ).all()
 
 
-def atualizar_usuario(
-    conn: Connection, account_id: UUID, status: Optional[str], tags: Optional[List[str]]
-) -> Row:
+def atualizar_usuario(conn: Connection, account_id: UUID, campos: dict) -> Row:
+    """Edicao administrativa: SOBRESCREVE os campos fornecidos (o fluxo do
+    app so completa vazios; o painel e autoritativo). Campos ausentes (None)
+    ficam intactos via COALESCE. Inclui correcao de CPF."""
     return conn.execute(
         text(
             f"""
             UPDATE wallet_accounts
             SET status = COALESCE(:status, status),
-                tags = COALESCE(CAST(:tags AS jsonb), tags)
+                tags = COALESCE(CAST(:tags AS jsonb), tags),
+                cpf = COALESCE(:cpf, cpf),
+                nome = COALESCE(:nome, nome),
+                email = COALESCE(:email, email),
+                celular = COALESCE(:celular, celular),
+                data_nascimento = COALESCE(:data_nascimento, data_nascimento),
+                cep = COALESCE(:cep, cep),
+                logradouro = COALESCE(:logradouro, logradouro),
+                numero = COALESCE(:numero, numero),
+                complemento = COALESCE(:complemento, complemento),
+                bairro = COALESCE(:bairro, bairro),
+                cidade = COALESCE(:cidade, cidade),
+                uf = COALESCE(:uf, uf)
             WHERE account_id = :id
             RETURNING *, {_CADASTRO_COMPLETO_SQL} AS cadastro_completo
             """
         ),
         {
             "id": str(account_id),
-            "status": status,
-            "tags": json.dumps(tags) if tags is not None else None,
+            "status": campos.get("status"),
+            "tags": json.dumps(campos["tags"]) if campos.get("tags") is not None else None,
+            "cpf": campos.get("cpf"),
+            "nome": campos.get("nome"),
+            "email": campos.get("email"),
+            "celular": campos.get("celular"),
+            "data_nascimento": campos.get("data_nascimento"),
+            "cep": campos.get("cep"),
+            "logradouro": campos.get("logradouro"),
+            "numero": campos.get("numero"),
+            "complemento": campos.get("complemento"),
+            "bairro": campos.get("bairro"),
+            "cidade": campos.get("cidade"),
+            "uf": campos.get("uf"),
         },
     ).first()
+
+
+def registrar_alteracao(conn: Connection, account_id: UUID, acao: str, campos: dict) -> None:
+    """Trilha de auditoria imutavel de toda acao administrativa no cadastro."""
+    conn.execute(
+        text(
+            """
+            INSERT INTO admin_usuarios_alteracoes (account_id, acao, campos)
+            VALUES (:account_id, :acao, CAST(:campos AS jsonb))
+            """
+        ),
+        {
+            "account_id": str(account_id),
+            "acao": acao,
+            "campos": json.dumps({k: str(v) for k, v in campos.items() if v is not None}),
+        },
+    )
+
+
+def list_alteracoes(conn: Connection, account_id: UUID) -> List[Row]:
+    return conn.execute(
+        text(
+            "SELECT * FROM admin_usuarios_alteracoes WHERE account_id = :id ORDER BY criado_em DESC"
+        ),
+        {"id": str(account_id)},
+    ).all()
+
+
+def reset_dados_usuarios(conn: Connection) -> int:
+    """Apaga TODOS os cadastros e dados transacionais (uso pre-lancamento,
+    protegido por env + confirmacao). Preserva catalogo de beneficios,
+    parceiros, planos, sorteios, anuncios e o ESTOQUE de cupons (so limpa
+    as atribuicoes).
+
+    TRUNCATE (e nao DELETE) em ledger_events/apuracoes e proposital: essas
+    tabelas tem trigger que bloqueia DELETE; TRUNCATE nao dispara trigger
+    de linha e e a unica forma de zerar o ambiente de teste."""
+    total = conn.execute(text("SELECT count(*) FROM wallet_accounts")).scalar()
+    conn.execute(text("UPDATE beneficios_cupons SET account_id = NULL, atribuido_em = NULL"))
+    conn.execute(
+        text(
+            """
+            TRUNCATE consumo_lotes, numeros_sorte, capitalizacao_titulos,
+                     compras_capitalizacao, nf_submissoes, notas_servico,
+                     resgates, beneficios_usos, apuracao_contemplados,
+                     apuracoes, assinaturas, lotes_creditos, ledger_events,
+                     admin_usuarios_alteracoes
+            """
+        )
+    )
+    conn.execute(text("DELETE FROM wallet_accounts"))
+    return total
 
 
 def get_usuario(conn: Connection, account_id: UUID) -> Optional[Row]:

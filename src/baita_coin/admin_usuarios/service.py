@@ -3,19 +3,31 @@ Urbis a pedido do usuario: listagem com busca/filtros/paginacao, detalhe
 com resumo de atividade, ativacao/inativacao e tags."""
 from decimal import Decimal
 from typing import List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy.engine import Engine, Row
+from sqlalchemy.exc import IntegrityError
 
 from baita_coin.admin_usuarios import repository as repo
+from baita_coin.admin_usuarios.errors import (
+    ConfirmacaoInvalida,
+    CpfJaCadastrado,
+    ResetDesabilitado,
+)
 from baita_coin.admin_usuarios.schemas import (
     AtividadeResumo,
     AtualizarUsuarioRequest,
+    CriarUsuarioAdminRequest,
     EventoResumo,
+    ResetDadosRequest,
+    ResetDadosResponse,
     UsuarioDetalheResponse,
     UsuarioListaItem,
     UsuariosListaResponse,
 )
+from baita_coin.config import settings
+from baita_coin.shared.postgres import constraint_violada
+from baita_coin.wallet import repository as wallet_repo
 from baita_coin.wallet.errors import ContaNaoEncontrada
 
 
@@ -105,9 +117,62 @@ def detalhar_usuario(engine: Engine, account_id: UUID) -> UsuarioDetalheResponse
 def atualizar_usuario(
     engine: Engine, account_id: UUID, payload: AtualizarUsuarioRequest
 ) -> UsuarioListaItem:
+    campos = payload.model_dump(exclude_none=True)
+    try:
+        with engine.begin() as conn:
+            existente = repo.get_usuario(conn, account_id)
+            if existente is None:
+                raise ContaNaoEncontrada(
+                    "account_id nao encontrado", detalhes={"account_id": str(account_id)}
+                )
+            row = repo.atualizar_usuario(conn, account_id, campos)
+            if campos:  # trilha de auditoria: o que mudou, nunca se perde
+                repo.registrar_alteracao(conn, account_id, "editar", campos)
+            return _item_da_row(row)
+    except IntegrityError as exc:
+        if constraint_violada(exc) == "wallet_accounts_cpf_key":
+            raise CpfJaCadastrado(
+                "Ja existe outra conta com este CPF.", detalhes={"cpf": campos.get("cpf")}
+            )
+        raise
+
+
+def criar_usuario_admin(engine: Engine, payload: CriarUsuarioAdminRequest) -> UsuarioListaItem:
+    try:
+        with engine.begin() as conn:
+            account_id = uuid4()
+            wallet_repo.create_account(
+                conn,
+                account_id,
+                payload.cpf,
+                "ativa",
+                payload.model_dump(exclude={"cpf", "tags"}),
+            )
+            campos = payload.model_dump(exclude_none=True)
+            row = repo.atualizar_usuario(conn, account_id, {"tags": payload.tags})
+            repo.registrar_alteracao(conn, account_id, "criar", campos)
+            return _item_da_row(row)
+    except IntegrityError as exc:
+        if constraint_violada(exc) == "wallet_accounts_cpf_key":
+            raise CpfJaCadastrado(
+                "Ja existe uma conta com este CPF.", detalhes={"cpf": payload.cpf}
+            )
+        raise
+
+
+def resetar_dados_usuarios(engine: Engine, payload: ResetDadosRequest) -> ResetDadosResponse:
+    """Zera os cadastros de teste (pre-lancamento). Tripla protecao: rota
+    /v1/internal (API key), env RESET_DADOS_HABILITADO e frase de
+    confirmacao exata."""
+    if not settings.reset_dados_habilitado:
+        raise ResetDesabilitado(
+            "Reset desabilitado. Defina RESET_DADOS_HABILITADO=true no ambiente "
+            "(e remova depois de usar)."
+        )
+    if payload.confirmacao != "APAGAR TODOS OS CADASTROS":
+        raise ConfirmacaoInvalida(
+            'Confirmacao invalida: envie exatamente "APAGAR TODOS OS CADASTROS".'
+        )
     with engine.begin() as conn:
-        existente = repo.get_usuario(conn, account_id)
-        if existente is None:
-            raise ContaNaoEncontrada("account_id nao encontrado", detalhes={"account_id": str(account_id)})
-        row = repo.atualizar_usuario(conn, account_id, payload.status, payload.tags)
-        return _item_da_row(row)
+        total = repo.reset_dados_usuarios(conn)
+    return ResetDadosResponse(contas_apagadas=total)

@@ -7,6 +7,9 @@ from sqlalchemy.engine import Engine
 from baita_coin.admin_usuarios import service
 from baita_coin.admin_usuarios.schemas import (
     AtualizarUsuarioRequest,
+    CriarUsuarioAdminRequest,
+    ResetDadosRequest,
+    ResetDadosResponse,
     UsuarioDetalheResponse,
     UsuarioListaItem,
     UsuariosListaResponse,
@@ -44,4 +47,24 @@ def detalhar_usuario_endpoint(
 def atualizar_usuario_endpoint(
     account_id: UUID, payload: AtualizarUsuarioRequest, engine: Engine = Depends(get_engine)
 ) -> UsuarioListaItem:
+    """Edicao administrativa do cadastro (inclui correcao de CPF), com
+    trilha de auditoria imutavel."""
     return service.atualizar_usuario(engine, account_id, payload)
+
+
+@router.post("/v1/admin/usuarios", response_model=UsuarioListaItem, status_code=201)
+def criar_usuario_admin_endpoint(
+    payload: CriarUsuarioAdminRequest, engine: Engine = Depends(get_engine)
+) -> UsuarioListaItem:
+    """Cria um cadastro completo pelo painel (com auditoria)."""
+    return service.criar_usuario_admin(engine, payload)
+
+
+@router.post("/v1/internal/usuarios/reset-teste", response_model=ResetDadosResponse)
+def reset_dados_endpoint(
+    payload: ResetDadosRequest, engine: Engine = Depends(get_engine)
+) -> ResetDadosResponse:
+    """APAGA todos os cadastros e dados transacionais (pre-lancamento).
+    Tripla protecao: API key interna + RESET_DADOS_HABILITADO=true +
+    frase de confirmacao exata."""
+    return service.resetar_dados_usuarios(engine, payload)
