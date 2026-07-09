@@ -35,6 +35,7 @@ _TABELAS_EM_ORDEM_DE_LIMPEZA = [
     "notas_servico",
     "resgates",
     "catalogo_itens",
+    "beneficios_cupons",
     "beneficios_usos",
     "beneficios",
     "anuncios",

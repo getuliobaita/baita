@@ -213,3 +213,142 @@ def test_beneficio_com_logo_capa_e_chamada(client):
     listado = client.get("/v1/beneficios", params={"categoria": "Esportes"}).json()
     achado = next(b for b in listado if b["beneficio_id"] == criado["beneficio_id"])
     assert achado["logo_url"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Modos de resgate flexiveis + pagina de detalhe do parceiro
+# ---------------------------------------------------------------------------
+
+
+def _criar_beneficio_com_modo(client, modo, config=None, nome="Parceiro X", **extras):
+    resp = client.post(
+        "/v1/admin/beneficios",
+        json={
+            "nome": nome,
+            "tipo": "desconto",
+            "categoria": "Esportes",
+            "uso": "presencial",
+            "descricao_oferta": "10% off",
+            "modo_resgate": modo,
+            "resgate_config": config or {},
+            **extras,
+        },
+    )
+    assert resp.status_code == 201
+    return resp.json()["beneficio_id"]
+
+
+def test_detalhe_publico_do_beneficio(client):
+    beneficio_id = _criar_beneficio_com_modo(
+        client,
+        "cpf_no_caixa",
+        nome="Farmacia Y",
+        descricao_completa="Rede de farmacias com 30 lojas no RS.",
+        instrucoes_resgate="Informe seu CPF no caixa para ganhar o desconto.",
+    )
+    detalhe = client.get(f"/v1/beneficios/{beneficio_id}").json()
+    assert detalhe["nome"] == "Farmacia Y"
+    assert detalhe["modo_resgate"] == "cpf_no_caixa"
+    assert "30 lojas" in detalhe["descricao_completa"]
+    assert "CPF no caixa" in detalhe["instrucoes_resgate"]
+
+
+def test_cupom_unico_devolve_o_mesmo_codigo_para_todos(client, criar_conta_ativa):
+    a = criar_conta_ativa()
+    b = criar_conta_ativa()
+    _creditar(client, a, "10.00", "cu_a")
+    _creditar(client, b, "10.00", "cu_b")
+    beneficio_id = _criar_beneficio_com_modo(client, "cupom_unico", {"codigo": "BAITA10"})
+
+    uso_a = client.post(
+        f"/v1/beneficios/{beneficio_id}/usar",
+        json={"account_id": str(a), "idempotency_key": "cu_uso_a"},
+    ).json()
+    uso_b = client.post(
+        f"/v1/beneficios/{beneficio_id}/usar",
+        json={"account_id": str(b), "idempotency_key": "cu_uso_b"},
+    ).json()
+    assert uso_a["codigo_cupom"] == uso_b["codigo_cupom"] == "BAITA10"
+    assert uso_a["modo_resgate"] == "cupom_unico"
+
+
+def test_cupom_por_cpf_consome_do_estoque_sem_repetir(client, criar_conta_ativa):
+    a = criar_conta_ativa()
+    b = criar_conta_ativa()
+    _creditar(client, a, "10.00", "cc_a")
+    _creditar(client, b, "10.00", "cc_b")
+    beneficio_id = _criar_beneficio_com_modo(client, "cupom_por_cpf")
+
+    importado = client.post(
+        f"/v1/admin/beneficios/{beneficio_id}/cupons",
+        json={"codigos": ["UNICO-1", "UNICO-2", "UNICO-1"]},  # repetido e ignorado
+    ).json()
+    assert importado["importados"] == 2
+    assert importado["ja_existiam"] == 1
+    assert importado["disponiveis"] == 2
+
+    uso_a = client.post(
+        f"/v1/beneficios/{beneficio_id}/usar",
+        json={"account_id": str(a), "idempotency_key": "cc_uso_a"},
+    ).json()
+    uso_b = client.post(
+        f"/v1/beneficios/{beneficio_id}/usar",
+        json={"account_id": str(b), "idempotency_key": "cc_uso_b"},
+    ).json()
+    assert {uso_a["codigo_cupom"], uso_b["codigo_cupom"]} == {"UNICO-1", "UNICO-2"}
+
+    # estoque zerado aparece no admin
+    admin = client.get("/v1/admin/beneficios").json()
+    alvo = next(x for x in admin if x["beneficio_id"] == beneficio_id)
+    assert alvo["cupons_disponiveis"] == 0
+
+
+def test_estoque_esgotado_nao_cobra_o_cliente(client, criar_conta_ativa):
+    account_id = criar_conta_ativa()
+    _creditar(client, account_id, "10.00", "esg_1")
+    beneficio_id = _criar_beneficio_com_modo(client, "cupom_por_cpf")  # sem importar cupons
+
+    resp = client.post(
+        f"/v1/beneficios/{beneficio_id}/usar",
+        json={"account_id": str(account_id), "idempotency_key": "esg_uso"},
+    )
+    assert resp.status_code == 409
+    assert resp.json()["erro"]["codigo"] == "BENEFICIO_SEM_CUPONS"
+
+    # rollback total: nenhum coin debitado
+    saldo = client.get(f"/v1/wallet/{account_id}/saldo").json()
+    assert saldo["saldo_coins"] == "10.00"
+
+
+def test_cpf_no_caixa_sem_codigo_com_instrucoes_e_custo_zero(client, criar_conta_ativa):
+    account_id = criar_conta_ativa()  # sem creditar: custo zero nao debita nada
+    beneficio_id = _criar_beneficio_com_modo(
+        client,
+        "cpf_no_caixa",
+        custo_em_coins="0.00",
+        instrucoes_resgate="Apresente seu CPF no caixa.",
+    )
+
+    resp = client.post(
+        f"/v1/beneficios/{beneficio_id}/usar",
+        json={"account_id": str(account_id), "idempotency_key": "caixa_uso"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["codigo_cupom"] is None
+    assert body["link_afiliado"] is None
+    assert body["coins_debitados"] == "0"
+    assert "CPF no caixa" in body["instrucoes"]
+
+
+def test_modo_link_devolve_url_do_parceiro(client, criar_conta_ativa):
+    account_id = criar_conta_ativa()
+    _creditar(client, account_id, "10.00", "lk_1")
+    beneficio_id = _criar_beneficio_com_modo(client, "link", {"url": "https://parceiro.com/baita"})
+
+    body = client.post(
+        f"/v1/beneficios/{beneficio_id}/usar",
+        json={"account_id": str(account_id), "idempotency_key": "lk_uso"},
+    ).json()
+    assert body["link_afiliado"] == "https://parceiro.com/baita"
+    assert body["codigo_cupom"] is None

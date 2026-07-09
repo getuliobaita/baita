@@ -10,6 +10,8 @@ from baita_coin.beneficios.schemas import (
     AtualizarBeneficioRequest,
     BeneficioResponse,
     CriarBeneficioRequest,
+    ImportarCuponsRequest,
+    ImportarCuponsResponse,
     UsarBeneficioRequest,
     UsarBeneficioResponse,
 )
@@ -56,6 +58,14 @@ def atualizar_beneficio_endpoint(
     return service.atualizar_beneficio(engine, beneficio_id, payload)
 
 
+@router.get("/v1/beneficios/{beneficio_id}", response_model=BeneficioResponse)
+def consultar_beneficio_endpoint(
+    beneficio_id: UUID, engine: Engine = Depends(get_engine)
+) -> BeneficioResponse:
+    """Detalhe publico do beneficio -- alimenta a pagina do parceiro no app."""
+    return service.consultar_beneficio(engine, beneficio_id)
+
+
 @router.post("/v1/beneficios/{beneficio_id}/usar", response_model=UsarBeneficioResponse)
 def usar_beneficio_endpoint(
     beneficio_id: UUID,
@@ -64,3 +74,15 @@ def usar_beneficio_endpoint(
     adapter: BeneficioAdapter = Depends(get_beneficio_adapter),
 ) -> UsarBeneficioResponse:
     return service.usar_beneficio(engine, adapter, beneficio_id, payload)
+
+
+@router.post(
+    "/v1/admin/beneficios/{beneficio_id}/cupons",
+    response_model=ImportarCuponsResponse,
+    status_code=201,
+)
+def importar_cupons_endpoint(
+    beneficio_id: UUID, payload: ImportarCuponsRequest, engine: Engine = Depends(get_engine)
+) -> ImportarCuponsResponse:
+    """Importa o estoque de cupons individuais (modo cupom_por_cpf)."""
+    return service.importar_cupons(engine, beneficio_id, payload)

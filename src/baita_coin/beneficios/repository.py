@@ -20,16 +20,23 @@ def insert_beneficio(
     logo_url: Optional[str] = None,
     imagem_capa_url: Optional[str] = None,
     chamada: Optional[str] = None,
+    modo_resgate: str = "automatico",
+    resgate_config: Optional[str] = None,  # JSON string
+    descricao_completa: Optional[str] = None,
+    instrucoes_resgate: Optional[str] = None,
 ) -> Row:
     return conn.execute(
         text(
             """
             INSERT INTO beneficios
                 (beneficio_id, nome, tipo, categoria, uso, descricao_oferta, percentual_referencia,
-                 custo_em_coins, logo_url, imagem_capa_url, chamada)
+                 custo_em_coins, logo_url, imagem_capa_url, chamada,
+                 modo_resgate, resgate_config, descricao_completa, instrucoes_resgate)
             VALUES
                 (:beneficio_id, :nome, :tipo, :categoria, :uso, :descricao_oferta, :percentual_referencia,
-                 :custo_em_coins, :logo_url, :imagem_capa_url, :chamada)
+                 :custo_em_coins, :logo_url, :imagem_capa_url, :chamada,
+                 :modo_resgate, CAST(COALESCE(:resgate_config, '{}') AS jsonb),
+                 :descricao_completa, :instrucoes_resgate)
             RETURNING *
             """
         ),
@@ -45,6 +52,10 @@ def insert_beneficio(
             "logo_url": logo_url,
             "imagem_capa_url": imagem_capa_url,
             "chamada": chamada,
+            "modo_resgate": modo_resgate,
+            "resgate_config": resgate_config,
+            "descricao_completa": descricao_completa,
+            "instrucoes_resgate": instrucoes_resgate,
         },
     ).first()
 
@@ -104,6 +115,10 @@ def atualizar_beneficio(
     logo_url: Optional[str] = None,
     imagem_capa_url: Optional[str] = None,
     chamada: Optional[str] = None,
+    modo_resgate: Optional[str] = None,
+    resgate_config: Optional[str] = None,  # JSON string
+    descricao_completa: Optional[str] = None,
+    instrucoes_resgate: Optional[str] = None,
 ) -> Row:
     return conn.execute(
         text(
@@ -118,7 +133,11 @@ def atualizar_beneficio(
                 status = COALESCE(:status, status),
                 logo_url = COALESCE(:logo_url, logo_url),
                 imagem_capa_url = COALESCE(:imagem_capa_url, imagem_capa_url),
-                chamada = COALESCE(:chamada, chamada)
+                chamada = COALESCE(:chamada, chamada),
+                modo_resgate = COALESCE(:modo_resgate, modo_resgate),
+                resgate_config = COALESCE(CAST(:resgate_config AS jsonb), resgate_config),
+                descricao_completa = COALESCE(:descricao_completa, descricao_completa),
+                instrucoes_resgate = COALESCE(:instrucoes_resgate, instrucoes_resgate)
             WHERE beneficio_id = :beneficio_id
             RETURNING *
             """
@@ -135,6 +154,10 @@ def atualizar_beneficio(
             "logo_url": logo_url,
             "imagem_capa_url": imagem_capa_url,
             "chamada": chamada,
+            "modo_resgate": modo_resgate,
+            "resgate_config": resgate_config,
+            "descricao_completa": descricao_completa,
+            "instrucoes_resgate": instrucoes_resgate,
         },
     ).first()
 
@@ -150,7 +173,7 @@ def insert_uso(
     uso_id: UUID,
     account_id: UUID,
     beneficio_id: UUID,
-    event_id: UUID,
+    event_id: Optional[UUID],
     idempotency_key: str,
     codigo_cupom: Optional[str],
     link_afiliado: Optional[str],
@@ -169,9 +192,62 @@ def insert_uso(
             "uso_id": str(uso_id),
             "account_id": str(account_id),
             "beneficio_id": str(beneficio_id),
-            "event_id": str(event_id),
+            "event_id": str(event_id) if event_id else None,
             "idempotency_key": idempotency_key,
             "codigo_cupom": codigo_cupom,
             "link_afiliado": link_afiliado,
         },
     ).first()
+
+
+# ---------------------------------------------------------------------------
+# Estoque de cupons individuais (modo cupom_por_cpf)
+# ---------------------------------------------------------------------------
+
+
+def importar_cupons(conn: Connection, beneficio_id: UUID, codigos: List[str]) -> int:
+    """Insere os codigos no estoque; repetidos sao ignorados (idempotente).
+    Devolve quantos entraram de fato."""
+    rows = conn.execute(
+        text(
+            """
+            INSERT INTO beneficios_cupons (beneficio_id, codigo)
+            SELECT :beneficio_id, x FROM unnest(CAST(:codigos AS varchar[])) AS x
+            ON CONFLICT (beneficio_id, codigo) DO NOTHING
+            RETURNING cupom_id
+            """
+        ),
+        {"beneficio_id": str(beneficio_id), "codigos": codigos},
+    ).all()
+    return len(rows)
+
+
+def claim_cupom(conn: Connection, beneficio_id: UUID, account_id: UUID) -> Optional[Row]:
+    """Reserva atomicamente UM cupom livre do estoque pra esta conta.
+    SKIP LOCKED evita que dois usos concorrentes disputem a mesma linha."""
+    return conn.execute(
+        text(
+            """
+            UPDATE beneficios_cupons
+            SET account_id = :account_id, atribuido_em = now()
+            WHERE cupom_id = (
+                SELECT cupom_id FROM beneficios_cupons
+                WHERE beneficio_id = :beneficio_id AND account_id IS NULL
+                ORDER BY criado_em ASC
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+            )
+            RETURNING codigo
+            """
+        ),
+        {"beneficio_id": str(beneficio_id), "account_id": str(account_id)},
+    ).first()
+
+
+def contar_cupons_disponiveis(conn: Connection, beneficio_id: UUID) -> int:
+    return conn.execute(
+        text(
+            "SELECT count(*) FROM beneficios_cupons WHERE beneficio_id = :id AND account_id IS NULL"
+        ),
+        {"id": str(beneficio_id)},
+    ).scalar()
