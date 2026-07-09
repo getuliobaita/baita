@@ -115,6 +115,9 @@ class CriarUsuarioAdminRequest(BaseModel):
 
 class ResetDadosRequest(BaseModel):
     confirmacao: str
+    # numero atual de contas: obriga quem dispara a SABER o tamanho do que
+    # esta apagando (o manager mostra o total na tela antes de confirmar)
+    total_esperado: int
 
 
 class ResetDadosResponse(BaseModel):

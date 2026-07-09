@@ -95,9 +95,6 @@ class Settings(BaseSettings):
     # consulta e cobrada) -- o GET de status so reconsulta depois disso.
     sefaz_reconsulta_intervalo_segundos: int = 300
 
-    # Habilita o endpoint de reset dos cadastros de teste (pre-lancamento).
-    # NUNCA deixar true em operacao normal -- ligar, usar, desligar.
-    reset_dados_habilitado: bool = False
 
 
 settings = Settings()

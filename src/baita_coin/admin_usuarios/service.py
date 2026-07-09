@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID, uuid4
 
+from sqlalchemy import text as sqla_text
 from sqlalchemy.engine import Engine, Row
 from sqlalchemy.exc import IntegrityError
 
@@ -12,7 +13,7 @@ from baita_coin.admin_usuarios import repository as repo
 from baita_coin.admin_usuarios.errors import (
     ConfirmacaoInvalida,
     CpfJaCadastrado,
-    ResetDesabilitado,
+    UsuarioComMovimentacoes,
 )
 from baita_coin.admin_usuarios.schemas import (
     AtividadeResumo,
@@ -25,7 +26,6 @@ from baita_coin.admin_usuarios.schemas import (
     UsuarioListaItem,
     UsuariosListaResponse,
 )
-from baita_coin.config import settings
 from baita_coin.shared.postgres import constraint_violada
 from baita_coin.wallet import repository as wallet_repo
 from baita_coin.wallet.errors import ContaNaoEncontrada
@@ -160,19 +160,43 @@ def criar_usuario_admin(engine: Engine, payload: CriarUsuarioAdminRequest) -> Us
         raise
 
 
-def resetar_dados_usuarios(engine: Engine, payload: ResetDadosRequest) -> ResetDadosResponse:
-    """Zera os cadastros de teste (pre-lancamento). Tripla protecao: rota
-    /v1/internal (API key), env RESET_DADOS_HABILITADO e frase de
-    confirmacao exata."""
-    if not settings.reset_dados_habilitado:
-        raise ResetDesabilitado(
-            "Reset desabilitado. Defina RESET_DADOS_HABILITADO=true no ambiente "
-            "(e remova depois de usar)."
+def excluir_usuario(engine: Engine, account_id: UUID) -> None:
+    """Exclusao fisica pelo painel -- SO para contas sem movimentacao de
+    coins. Conta que ja movimentou tem lastro no ledger imutavel (auditoria
+    financeira/SUSEP) e nao pode sumir: bloquear ou usar o reset total."""
+    with engine.begin() as conn:
+        usuario = repo.get_usuario(conn, account_id)
+        if usuario is None:
+            raise ContaNaoEncontrada(
+                "account_id nao encontrado", detalhes={"account_id": str(account_id)}
+            )
+        if repo.contar_movimentacoes(conn, account_id) > 0:
+            raise UsuarioComMovimentacoes(
+                "Esta conta tem movimentacoes de coins e nao pode ser excluida "
+                "(registro financeiro auditavel). Bloqueie a conta ou use o reset total.",
+                detalhes={"account_id": str(account_id)},
+            )
+        repo.registrar_alteracao(
+            conn, account_id, "editar", {"exclusao": "conta excluida pelo painel", "cpf": usuario.cpf}
         )
+        repo.excluir_usuario_sem_movimentacoes(conn, account_id)
+
+
+def resetar_dados_usuarios(engine: Engine, payload: ResetDadosRequest) -> ResetDadosResponse:
+    """Zera os cadastros de teste (pre-lancamento). Protecoes: rota
+    /v1/internal (API key do manager), frase de confirmacao exata e o
+    total de contas atual -- quem apaga precisa saber o que esta apagando."""
     if payload.confirmacao != "APAGAR TODOS OS CADASTROS":
         raise ConfirmacaoInvalida(
             'Confirmacao invalida: envie exatamente "APAGAR TODOS OS CADASTROS".'
         )
     with engine.begin() as conn:
+        total_atual = conn.execute(sqla_text("SELECT count(*) FROM wallet_accounts")).scalar()
+        if payload.total_esperado != total_atual:
+            raise ConfirmacaoInvalida(
+                f"total_esperado ({payload.total_esperado}) nao bate com o numero atual "
+                f"de contas ({total_atual}) -- recarregue a tela e confirme de novo.",
+                detalhes={"total_atual": total_atual},
+            )
         total = repo.reset_dados_usuarios(conn)
     return ResetDadosResponse(contas_apagadas=total)

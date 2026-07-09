@@ -3,8 +3,6 @@ trilha de auditoria imutavel e reset dos dados de teste."""
 import pytest
 from sqlalchemy import text
 
-from baita_coin.config import settings
-
 
 def test_criar_usuario_pelo_painel_com_auditoria(client, test_engine):
     resp = client.post(
@@ -85,23 +83,61 @@ def test_corrigir_cpf_para_um_ja_existente_retorna_409(client, criar_conta_ativa
     assert resp.json()["erro"]["codigo"] == "CPF_JA_CADASTRADO"
 
 
-def test_reset_exige_env_habilitada_e_confirmacao(client, criar_conta_ativa, monkeypatch):
+def test_excluir_usuario_sem_movimentacoes(client, criar_conta_ativa, test_engine):
+    account_id = criar_conta_ativa(cpf="66677788899")
+
+    resp = client.delete(f"/v1/admin/usuarios/{account_id}")
+    assert resp.status_code == 204
+    assert client.get("/v1/wallet/contas/cpf/66677788899").status_code == 404
+
+    # a exclusao fica registrada na auditoria (que sobrevive a conta)
+    with test_engine.begin() as conn:
+        alteracao = conn.execute(
+            text("SELECT * FROM admin_usuarios_alteracoes WHERE account_id = :id"),
+            {"id": str(account_id)},
+        ).first()
+    assert alteracao is not None
+    assert alteracao.campos["cpf"] == "66677788899"
+
+    # e o CPF fica livre pra cadastrar de novo
+    assert client.post("/v1/wallet/contas", json={"cpf": "66677788899"}).status_code == 201
+
+
+def test_excluir_usuario_com_movimentacoes_e_bloqueado(client, criar_conta_ativa):
+    account_id = criar_conta_ativa()
+    client.post(
+        "/v1/internal/wallet/eventos",
+        json={
+            "account_id": str(account_id),
+            "tipo_evento": "credito_campanha",
+            "coins": "5.00",
+            "idempotency_key": "del_mov_1",
+        },
+    )
+    resp = client.delete(f"/v1/admin/usuarios/{account_id}")
+    assert resp.status_code == 409
+    assert resp.json()["erro"]["codigo"] == "USUARIO_COM_MOVIMENTACOES"
+
+
+def test_reset_exige_confirmacao_e_total_correto(client, criar_conta_ativa, test_engine):
     criar_conta_ativa()
 
-    # sem a env: 403
+    # frase errada: 422
     resp = client.post(
-        "/v1/internal/usuarios/reset-teste", json={"confirmacao": "APAGAR TODOS OS CADASTROS"}
+        "/v1/admin/usuarios/reset-teste", json={"confirmacao": "apagar", "total_esperado": 1}
     )
-    assert resp.status_code == 403
-
-    # env ligada mas confirmacao errada: 422
-    monkeypatch.setattr(settings, "reset_dados_habilitado", True)
-    resp = client.post("/v1/internal/usuarios/reset-teste", json={"confirmacao": "apagar"})
     assert resp.status_code == 422
 
+    # frase certa mas total errado: 422 (obriga a saber o que esta apagando)
+    resp = client.post(
+        "/v1/admin/usuarios/reset-teste",
+        json={"confirmacao": "APAGAR TODOS OS CADASTROS", "total_esperado": 99999},
+    )
+    assert resp.status_code == 422
+    assert "total" in resp.json()["erro"]["mensagem"]
 
-def test_reset_apaga_cadastros_e_preserva_catalogo(client, criar_conta_ativa, monkeypatch):
-    monkeypatch.setattr(settings, "reset_dados_habilitado", True)
+
+def test_reset_apaga_cadastros_e_preserva_catalogo(client, criar_conta_ativa, test_engine):
     criar_conta_ativa(cpf="44455566677")
     criar_conta_ativa(cpf="55566677788")
 
@@ -117,8 +153,11 @@ def test_reset_apaga_cadastros_e_preserva_catalogo(client, criar_conta_ativa, mo
         },
     ).json()
 
+    with test_engine.begin() as conn:
+        total_atual = conn.execute(text("SELECT count(*) FROM wallet_accounts")).scalar()
     resp = client.post(
-        "/v1/internal/usuarios/reset-teste", json={"confirmacao": "APAGAR TODOS OS CADASTROS"}
+        "/v1/admin/usuarios/reset-teste",
+        json={"confirmacao": "APAGAR TODOS OS CADASTROS", "total_esperado": total_atual},
     )
     assert resp.status_code == 200
     assert resp.json()["contas_apagadas"] >= 2

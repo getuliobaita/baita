@@ -60,11 +60,18 @@ def criar_usuario_admin_endpoint(
     return service.criar_usuario_admin(engine, payload)
 
 
-@router.post("/v1/internal/usuarios/reset-teste", response_model=ResetDadosResponse)
+@router.delete("/v1/admin/usuarios/{account_id}", status_code=204)
+def excluir_usuario_endpoint(account_id: UUID, engine: Engine = Depends(get_engine)) -> None:
+    """Exclui uma conta SEM movimentacoes de coins (409 se ja movimentou --
+    o ledger e imutavel por exigencia de auditoria)."""
+    service.excluir_usuario(engine, account_id)
+
+
+@router.post("/v1/admin/usuarios/reset-teste", response_model=ResetDadosResponse)
 def reset_dados_endpoint(
     payload: ResetDadosRequest, engine: Engine = Depends(get_engine)
 ) -> ResetDadosResponse:
     """APAGA todos os cadastros e dados transacionais (pre-lancamento).
-    Tripla protecao: API key interna + RESET_DADOS_HABILITADO=true +
-    frase de confirmacao exata."""
+    Protecoes: API key (proxy do manager) + frase de confirmacao exata +
+    total de contas atual."""
     return service.resetar_dados_usuarios(engine, payload)

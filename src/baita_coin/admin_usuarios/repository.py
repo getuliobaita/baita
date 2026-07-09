@@ -173,6 +173,35 @@ def list_alteracoes(conn: Connection, account_id: UUID) -> List[Row]:
     ).all()
 
 
+def contar_movimentacoes(conn: Connection, account_id: UUID) -> int:
+    return conn.execute(
+        text("SELECT count(*) FROM ledger_events WHERE account_id = :id"),
+        {"id": str(account_id)},
+    ).scalar()
+
+
+def excluir_usuario_sem_movimentacoes(conn: Connection, account_id: UUID) -> None:
+    """Exclusao fisica de uma conta SEM movimentacoes de coins (validar com
+    contar_movimentacoes antes). Remove os vinculos que nao tem lastro no
+    ledger; a trilha de auditoria administrativa fica (nao tem FK e e o
+    registro historico da exclusao)."""
+    aid = {"id": str(account_id)}
+    conn.execute(text("UPDATE beneficios_cupons SET account_id = NULL, atribuido_em = NULL WHERE account_id = :id"), aid)
+    conn.execute(text("DELETE FROM beneficios_usos WHERE account_id = :id AND event_id IS NULL"), aid)
+    conn.execute(
+        text(
+            "DELETE FROM notas_servico WHERE compra_id IN "
+            "(SELECT compra_id FROM compras_capitalizacao WHERE account_id = :id)"
+        ),
+        aid,
+    )
+    conn.execute(text("DELETE FROM nf_submissoes WHERE account_id = :id"), aid)
+    conn.execute(text("DELETE FROM compras_capitalizacao WHERE account_id = :id"), aid)
+    conn.execute(text("DELETE FROM resgates WHERE account_id = :id"), aid)
+    conn.execute(text("DELETE FROM assinaturas WHERE account_id = :id"), aid)
+    conn.execute(text("DELETE FROM wallet_accounts WHERE account_id = :id"), aid)
+
+
 def reset_dados_usuarios(conn: Connection) -> int:
     """Apaga TODOS os cadastros e dados transacionais (uso pre-lancamento,
     protegido por env + confirmacao). Preserva catalogo de beneficios,
