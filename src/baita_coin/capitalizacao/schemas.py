@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from baita_coin.capitalizacao.constants import MAX_PACOTES, MIN_PACOTES
+from baita_coin.sorteios.schemas import NumerosSorteResumo
 
 
 class CriarCompraRequest(BaseModel):
@@ -80,26 +81,6 @@ class CampanhaAplicada(BaseModel):
     nome: str
 
 
-class NumerosSorteResumo(BaseModel):
-    sorteio_id: UUID
-    numeros: List[int]
-    total: int
-
-
-class NumeroSorteItem(BaseModel):
-    numero: int
-    status: str
-    sorteio_id: UUID
-    titulo: Optional[str] = None
-    data_sorteio: datetime
-    sorteio_status: str
-
-
-class MeusNumerosResponse(BaseModel):
-    numeros: List[NumeroSorteItem]
-    total: int
-
-
 class CompraDetalheResponse(BaseModel):
     compra_id: UUID
     status: str
@@ -171,138 +152,3 @@ class RelatorioCompradoresResponse(BaseModel):
     taxa_recompra: Decimal
     total_compras_confirmadas: int
     total_valor_reais_comprado: Decimal
-
-
-class AbrirSorteioRequest(BaseModel):
-    data_sorteio: datetime
-
-
-class SorteioResponse(BaseModel):
-    sorteio_id: UUID
-    data_sorteio: datetime
-    status: str
-
-
-class PremioItem(BaseModel):
-    valor: Decimal
-    quantidade: int = Field(ge=1)
-
-
-class CriarSorteioAdminRequest(BaseModel):
-    titulo: Optional[str] = Field(default=None, max_length=120)
-    data_sorteio: datetime
-    periodo_inicio: Optional[date] = None
-    periodo_fim: Optional[date] = None
-    data_apuracao: Optional[date] = None
-    data_divulgacao: Optional[date] = None
-    premios: List[PremioItem] = Field(default_factory=list)
-    banner_url: Optional[str] = None
-
-
-class AtualizarSorteioRequest(BaseModel):
-    titulo: Optional[str] = Field(default=None, max_length=120)
-    data_sorteio: Optional[datetime] = None
-    periodo_inicio: Optional[date] = None
-    periodo_fim: Optional[date] = None
-    data_apuracao: Optional[date] = None
-    data_divulgacao: Optional[date] = None
-    premios: Optional[List[PremioItem]] = None
-    banner_url: Optional[str] = None
-    status: Optional[str] = None
-
-
-class SorteioAdminResponse(BaseModel):
-    sorteio_id: UUID
-    titulo: Optional[str] = None
-    data_sorteio: datetime
-    periodo_inicio: Optional[date] = None
-    periodo_fim: Optional[date] = None
-    data_apuracao: Optional[date] = None
-    data_divulgacao: Optional[date] = None
-    premios: List[PremioItem]
-    banner_url: Optional[str] = None
-    status: str
-    total_numeros: int
-    tem_apuracao: bool
-
-
-class SorteioPublicoResponse(BaseModel):
-    """O que o app do cliente mostra do sorteio vigente."""
-
-    sorteio_id: UUID
-    titulo: Optional[str] = None
-    banner_url: Optional[str] = None
-    periodo_inicio: Optional[date] = None
-    periodo_fim: Optional[date] = None
-    data_apuracao: Optional[date] = None
-    data_divulgacao: Optional[date] = None
-    premios: List[PremioItem]
-    premio_total: Decimal
-    total_ganhadores: int
-
-
-# ---- Assinatura (cartao com recorrencia) ----
-
-
-class CriarAssinaturaRequest(BaseModel):
-    account_id: UUID
-    quantidade_pacotes: int = Field(ge=MIN_PACOTES, le=MAX_PACOTES)
-    # token gerado PELO APP direto na Pagar.me (chave publica) -- o cartao
-    # em si nunca chega ao nosso backend
-    card_token: str = Field(min_length=1, max_length=200)
-    idempotency_key: str = Field(min_length=1, max_length=100)
-
-
-class AssinaturaResponse(BaseModel):
-    assinatura_id: UUID
-    account_id: UUID
-    quantidade_pacotes: int
-    valor_reais: Decimal
-    status: str
-    cartao_bandeira: Optional[str] = None
-    cartao_ultimos4: Optional[str] = None
-    criado_em: datetime
-    cancelada_em: Optional[datetime] = None
-
-
-class PagamentosConfigResponse(BaseModel):
-    gateway: str
-    # chave PUBLICA do gateway (pk_...) -- projetada pra viver no frontend,
-    # usada pelo app pra tokenizar o cartao direto na Pagar.me
-    pagarme_public_key: Optional[str] = None
-
-
-# ---- Apuracao do sorteio (auditoria) ----
-
-
-class ExecutarApuracaoRequest(BaseModel):
-    # os 5 primeiros premios da extracao da Loteria Federal, como divulgados
-    # (ex: ["15985", "46729", "53008", "40143", "30123"])
-    premios_loteria: List[str] = Field(min_length=5, max_length=5)
-    data_extracao: date
-    # tabela de premios; vazio usa o padrao da edicao (1x50k + 2x25k)
-    premios: List[Decimal] = Field(default_factory=list)
-    serie: int = 1
-
-
-class ContempladoResponse(BaseModel):
-    ordem: int
-    numero_sorte: str  # formatado "59.833"
-    account_id: UUID
-    cpf: Optional[str] = None
-    nome: Optional[str] = None
-    premio_valor: Decimal
-
-
-class ApuracaoResponse(BaseModel):
-    apuracao_id: Optional[UUID] = None  # None em simulacao
-    sorteio_id: UUID
-    serie: int
-    data_extracao: date
-    premios_loteria: List[str]
-    numero_base: str  # formatado "59.833"
-    total_distribuidos: int
-    resultado_hash: str
-    criado_em: Optional[datetime] = None  # None em simulacao
-    simulacao: bool = False
-    contemplados: List[ContempladoResponse]

@@ -113,9 +113,7 @@ def listar_beneficios_admin(
             _beneficio_para_response(
                 r,
                 cupons_disponiveis=(
-                    repo.contar_cupons_disponiveis(conn, r.beneficio_id)
-                    if getattr(r, "modo_resgate", None) == "cupom_por_cpf"
-                    else None
+                    r.cupons_disponiveis if getattr(r, "modo_resgate", None) == "cupom_por_cpf" else None
                 ),
             )
             for r in rows

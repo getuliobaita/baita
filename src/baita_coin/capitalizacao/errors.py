@@ -19,11 +19,6 @@ class ValorConfirmadoDivergente(DomainError):
     status_code = 409
 
 
-class NenhumSorteioAberto(DomainError):
-    codigo = "NENHUM_SORTEIO_ABERTO"
-    status_code = 500
-
-
 class RegraCapitalizacaoNaoEncontrada(DomainError):
     codigo = "REGRA_CAPITALIZACAO_NAO_ENCONTRADA"
     status_code = 500
@@ -37,38 +32,3 @@ class CampanhaNaoEncontrada(DomainError):
 class PlanoNaoEncontrado(DomainError):
     codigo = "PLANO_NAO_ENCONTRADO"
     status_code = 404
-
-
-class SerieDeSorteioCheia(DomainError):
-    """Serie de 100.000 numeros praticamente esgotada -- so em escala muito
-    acima da atual. Rolagem para nova serie e backlog."""
-
-    codigo = "SERIE_DE_SORTEIO_CHEIA"
-    status_code = 500
-
-
-class SorteioNaoEncontrado(DomainError):
-    codigo = "SORTEIO_NAO_ENCONTRADO"
-    status_code = 404
-
-
-class ApuracaoNaoEncontrada(DomainError):
-    codigo = "APURACAO_NAO_ENCONTRADA"
-    status_code = 404
-
-
-class AssinaturaNaoEncontrada(DomainError):
-    codigo = "ASSINATURA_NAO_ENCONTRADA"
-    status_code = 404
-
-
-class AssinaturaJaAtiva(DomainError):
-    """A conta ja tem assinatura vigente -- cancelar antes de criar outra."""
-
-    codigo = "ASSINATURA_JA_ATIVA"
-    status_code = 409
-
-
-class CartaoRecusado(DomainError):
-    codigo = "CARTAO_RECUSADO"
-    status_code = 402

@@ -87,18 +87,30 @@ def list_beneficios_admin(
     conn: Connection, tipo: Optional[str] = None, categoria: Optional[str] = None
 ) -> List[Row]:
     """Uso administrativo -- inclui inativos, diferente de list_beneficios
-    (publico, so mostra ativos)."""
+    (publico, so mostra ativos). O estoque de cupons vem agregado na mesma
+    query (LEFT JOIN) em vez de uma consulta por linha."""
     condicoes = ["1 = 1"]
     params = {}
     if tipo is not None:
-        condicoes.append("tipo = :tipo")
+        condicoes.append("b.tipo = :tipo")
         params["tipo"] = tipo
     if categoria is not None:
-        condicoes.append("categoria = :categoria")
+        condicoes.append("b.categoria = :categoria")
         params["categoria"] = categoria
     where = " AND ".join(condicoes)
     return conn.execute(
-        text(f"SELECT * FROM beneficios WHERE {where} ORDER BY nome ASC"), params
+        text(
+            f"""
+            SELECT b.*,
+                   COUNT(c.cupom_id) FILTER (WHERE c.account_id IS NULL) AS cupons_disponiveis
+            FROM beneficios b
+            LEFT JOIN beneficios_cupons c ON c.beneficio_id = b.beneficio_id
+            WHERE {where}
+            GROUP BY b.beneficio_id
+            ORDER BY b.nome ASC
+            """
+        ),
+        params,
     ).all()
 
 

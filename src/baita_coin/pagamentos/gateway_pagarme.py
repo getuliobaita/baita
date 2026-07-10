@@ -18,7 +18,7 @@ from uuid import UUID
 
 import requests
 
-from baita_coin.capitalizacao.gateway import (
+from baita_coin.pagamentos.gateway import (
     GatewayPagamentoAdapter,
     ResultadoAssinatura,
     ResultadoCobranca,

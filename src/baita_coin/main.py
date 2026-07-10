@@ -7,17 +7,39 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from baita_coin.admin_usuarios.routes import router as admin_usuarios_router
 from baita_coin.anuncios.routes import router as anuncios_router
+from baita_coin.assinaturas.routes import router as assinaturas_router
 from baita_coin.beneficios.routes import router as beneficios_router
 from baita_coin.capitalizacao.routes import router as capitalizacao_router
 from baita_coin.config import settings
 from baita_coin.fiscal.routes import router as fiscal_router
 from baita_coin.notas_fiscais.routes import router as notas_fiscais_router
+from baita_coin.pagamentos.routes import router as pagamentos_router
 from baita_coin.resgates.routes import router as resgates_router
 from baita_coin.site_config.routes import router as site_config_router
+from baita_coin.sorteios.routes import router as sorteios_router
 from baita_coin.wallet.errors import DomainError
 from baita_coin.wallet.routes import router as wallet_router
 
 _ROTAS_PROTEGIDAS = ("/v1/internal/", "/v1/admin/")
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Headers de seguranca padrao em toda resposta (API JSON pura):
+    - nosniff: navegador nunca 'adivinha' content-type
+    - DENY: nenhuma pagina desta API pode ser embutida em iframe
+    - Referrer-Policy: nenhuma URL nossa vaza em cabecalho de referencia
+    - HSTS: forca HTTPS em acessos futuros (Render ja serve so HTTPS)
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+        return response
 
 
 class InternalApiKeyMiddleware(BaseHTTPMiddleware):
@@ -60,9 +82,13 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.add_middleware(InternalApiKeyMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)
 
     app.include_router(wallet_router)
     app.include_router(capitalizacao_router)
+    app.include_router(pagamentos_router)
+    app.include_router(assinaturas_router)
+    app.include_router(sorteios_router)
     app.include_router(notas_fiscais_router)
     app.include_router(resgates_router)
     app.include_router(beneficios_router)

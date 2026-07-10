@@ -137,7 +137,7 @@ def test_reemitir_nota_por_admin(client, criar_conta_ativa, test_engine, monkeyp
 
 def test_adapter_pagarme_monta_pedido_e_extrai_pix(monkeypatch):
     """Unit: o adapter real com HTTP mockado -- valida payload e parsing."""
-    from baita_coin.capitalizacao import gateway_pagarme as gp
+    from baita_coin.pagamentos import gateway_pagarme as gp
 
     capturado = {}
 
@@ -182,7 +182,7 @@ def test_adapter_pagarme_monta_pedido_e_extrai_pix(monkeypatch):
 
 
 def test_adapter_pagarme_exige_cpf(monkeypatch):
-    from baita_coin.capitalizacao import gateway_pagarme as gp
+    from baita_coin.pagamentos import gateway_pagarme as gp
 
     adapter = gp.PagarmeGatewayAdapter("sk_test_fake")
     from uuid import uuid4

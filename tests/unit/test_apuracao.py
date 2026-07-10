@@ -9,7 +9,7 @@ O regulamento (secao 3.1.5) traz este exemplo, que serve de teste-ouro:
 """
 import pytest
 
-from baita_coin.capitalizacao.apuracao import (
+from baita_coin.sorteios.apuracao import (
     apurar,
     apurar_contemplados,
     formatar_numero_sorte,

@@ -28,7 +28,7 @@ pytest
 
 ```
 src/baita_coin/
-├── main.py            # app factory, CORS, middleware de API key, handlers de erro
+├── main.py            # app factory, CORS, middlewares (API key, security headers)
 ├── config.py          # todas as variáveis de ambiente (Settings)
 ├── db.py              # engine SQLAlchemy
 ├── shared/            # helpers usados por todos os módulos
@@ -36,19 +36,26 @@ src/baita_coin/
 │   └── postgres.py    #   constraint_violada (padrão de idempotência)
 │
 │   # ---- módulos de domínio (todos seguem o mesmo layout) ----
-├── wallet/            # contas, ledger de coins, lotes FIFO, login/senha
-├── capitalizacao/     # compras, planos, sorteios, campanhas, gateway de pagamento
-│   └── apuracao.py    #   apuração auditável do sorteio (método SUSEP, puro)
-├── beneficios/        # catálogo desconto/cashback (custo em coins por uso)
-├── notas_fiscais/     # cashback por NF de parceiro (QR/OCR/SEFAZ + antifraude)
+├── wallet/            # contas, ledger de coins, lotes FIFO, login/senha, foto
+├── capitalizacao/     # compras em pacotes, planos, campanhas, webhook interno
+├── pagamentos/        # gateway (interface + mock + Pagar.me) + webhook do gateway
+├── assinaturas/       # cartão com recorrência (ciclo pago vira compra normal)
+├── sorteios/          # edições, números da sorte, apuração auditável (SUSEP)
+│   └── apuracao.py    #   motor puro do método do regulamento (Loteria Federal)
+├── beneficios/        # catálogo desconto/cashback + modos de resgate + cupons
+├── notas_fiscais/     # cashback por NF de parceiro (QR/SEFAZ + antifraude)
 ├── resgates/          # troca de coins por produtos (reserva → confirmação → débito)
 ├── anuncios/          # espaços de mídia do app (slots livres) + upload de imagens
 ├── site_config/       # aparência do app editada pelo manager (rascunho → publicar)
-├── admin_usuarios/    # listagem/detalhe/tags de usuários pro painel
+├── admin_usuarios/    # gestão de cadastros pro painel (com trilha de auditoria)
 ├── fiscal/            # emissão de NFS-e da venda (NFe.io)
 ├── notificacoes/      # WhatsApp (senha temporária, avisos)
 └── jobs/              # expirar_lotes (cron diário)
 ```
+
+**Compliance e escalabilidade**: ver [docs/COMPLIANCE.md](docs/COMPLIANCE.md)
+— dossiê verificável (PCI, SUSEP/auditoria, LGPD, segurança de aplicação e
+dívidas de escala em ordem de prioridade).
 
 **Layout padrão de cada módulo** (`wallet/` é o exemplo canônico):
 

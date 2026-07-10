@@ -143,13 +143,16 @@ def client(test_engine):
 
     from baita_coin.admin_usuarios.routes import get_engine as get_admin_usuarios_engine
     from baita_coin.anuncios.routes import get_engine as get_anuncios_engine
+    from baita_coin.assinaturas.routes import get_engine as get_assinaturas_engine
     from baita_coin.beneficios.routes import get_engine as get_beneficios_engine
     from baita_coin.capitalizacao.routes import get_engine as get_capitalizacao_engine
     from baita_coin.fiscal.routes import get_engine as get_fiscal_engine
     from baita_coin.main import create_app
     from baita_coin.notas_fiscais.routes import get_engine as get_notas_fiscais_engine
+    from baita_coin.pagamentos.routes import get_engine as get_pagamentos_engine
     from baita_coin.resgates.routes import get_engine as get_resgates_engine
     from baita_coin.site_config.routes import get_engine as get_site_config_engine
+    from baita_coin.sorteios.routes import get_engine as get_sorteios_engine
     from baita_coin.wallet.routes import get_engine as get_wallet_engine
 
     app = create_app()
@@ -162,5 +165,8 @@ def client(test_engine):
     app.dependency_overrides[get_admin_usuarios_engine] = lambda: test_engine
     app.dependency_overrides[get_fiscal_engine] = lambda: test_engine
     app.dependency_overrides[get_site_config_engine] = lambda: test_engine
+    app.dependency_overrides[get_pagamentos_engine] = lambda: test_engine
+    app.dependency_overrides[get_assinaturas_engine] = lambda: test_engine
+    app.dependency_overrides[get_sorteios_engine] = lambda: test_engine
     with TestClient(app) as test_client:
         yield test_client
