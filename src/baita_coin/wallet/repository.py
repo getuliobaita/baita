@@ -218,14 +218,20 @@ def insert_lote(
 
 
 def get_lotes_ativos_para_consumo(conn: Connection, account_id: UUID) -> List[Row]:
-    """Lotes ativos de uma conta, do mais antigo pro mais novo (FIFO), com lock
-    de linha -- garante que dois debitos concorrentes nao consomem o mesmo
-    lote em duplicidade."""
+    """Lotes ativos E DENTRO DA VALIDADE de uma conta, do mais antigo pro
+    mais novo (FIFO), com lock de linha -- garante que dois debitos
+    concorrentes nao consomem o mesmo lote em duplicidade.
+
+    O filtro por data_expiracao e defesa em profundidade: sem ele, um lote
+    vencido mas ainda nao processado pelo job diario (que roda 1x/dia)
+    poderia ser gasto na janela entre o vencimento e a rodada do job."""
     return conn.execute(
         text(
             """
             SELECT * FROM lotes_creditos
-            WHERE account_id = :account_id AND status = 'ativo'
+            WHERE account_id = :account_id
+              AND status = 'ativo'
+              AND data_expiracao > now()
             ORDER BY data_credito ASC
             FOR UPDATE
             """

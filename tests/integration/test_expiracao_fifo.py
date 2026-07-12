@@ -124,3 +124,28 @@ def test_job_fecha_sem_lancar_evento_quando_lote_ja_sem_saldo_remanescente(criar
         ).first()
     assert lote.status == "expirado"
     assert evento is None
+
+
+def test_lote_vencido_nao_pode_ser_gasto_antes_do_job_rodar(criar_conta_ativa, test_engine):
+    """Defesa em profundidade: entre o vencimento (90 dias da compra) e a
+    rodada do job diario, o lote vencido ja nao pode ser consumido -- a
+    validade vale pelo relogio, nao pelo horario do cron."""
+    import pytest
+
+    from baita_coin.wallet.errors import SaldoInsuficiente
+    from baita_coin.wallet.service import consumir_lotes_fifo
+
+    account_id = criar_conta_ativa()
+    with test_engine.begin() as conn:
+        event_id = _inserir_evento_credito(conn, account_id, "venc_gasto_1", "20.00")
+        # vencido ha 1 hora, mas o job AINDA NAO rodou (status segue 'ativo')
+        _inserir_lote(conn, event_id, account_id, "20.00", "0.00", dias_para_vencer=0)
+        conn.execute(
+            text("UPDATE lotes_creditos SET data_expiracao = now() - interval '1 hour' WHERE event_id = :e"),
+            {"e": str(event_id)},
+        )
+
+    with pytest.raises(SaldoInsuficiente):
+        with test_engine.begin() as conn:
+            debito = _inserir_evento_credito(conn, account_id, "venc_gasto_debito", "-5.00")
+            consumir_lotes_fifo(conn, account_id, debito, Decimal("5.00"))
