@@ -1,7 +1,7 @@
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy.engine import Engine
 
 from baita_coin.admin_usuarios import service
@@ -34,6 +34,20 @@ def listar_usuarios_endpoint(
     engine: Engine = Depends(get_engine),
 ) -> UsuariosListaResponse:
     return service.listar_usuarios(engine, busca, status, cadastro_completo, tag, pagina, por_pagina)
+
+
+@router.get("/v1/admin/usuarios/export")
+def exportar_base_endpoint(
+    apenas_opt_in_email: bool = True, engine: Engine = Depends(get_engine)
+) -> Response:
+    """CSV da base ativa (sem CPF) pra importar na ferramenta de e-mail/push.
+    Declarada ANTES de /{account_id} pra 'export' nao ser lido como UUID."""
+    csv_conteudo = service.exportar_base_csv(engine, apenas_opt_in_email)
+    return Response(
+        content=csv_conteudo,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="base_baita.csv"'},
+    )
 
 
 @router.get("/v1/admin/usuarios/{account_id}", response_model=UsuarioDetalheResponse)

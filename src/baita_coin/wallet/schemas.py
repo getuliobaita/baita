@@ -80,6 +80,8 @@ class ContaResponse(BaseModel):
     email: Optional[str] = None
     celular: Optional[str] = None
     foto_url: Optional[str] = None
+    aceita_comunicacoes_email: bool = True
+    aceita_comunicacoes_push: bool = False
     # true quando uma senha temporaria acabou de ser gerada e enviada por
     # WhatsApp (o app usa isso pra mostrar "te mandamos a senha no zap")
     senha_enviada_whatsapp: bool = False
@@ -97,6 +99,11 @@ class ContaResponse(BaseModel):
 
 # alias mantido pra compatibilidade com codigo existente
 CriarContaResponse = ContaResponse
+
+
+class AtualizarComunicacoesRequest(BaseModel):
+    aceita_comunicacoes_email: Optional[bool] = None
+    aceita_comunicacoes_push: Optional[bool] = None
 
 
 class LoginRequest(BaseModel):

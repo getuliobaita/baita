@@ -170,3 +170,36 @@ def test_reset_apaga_cadastros_e_preserva_catalogo(client, criar_conta_ativa, te
     # e da pra cadastrar de novo com o mesmo CPF
     nova = client.post("/v1/wallet/contas", json={"cpf": "44455566677"})
     assert nova.status_code == 201
+
+
+def test_opt_out_de_email_sai_do_export(client, criar_conta_ativa):
+    a = criar_conta_ativa(cpf="77788899900")
+    b = criar_conta_ativa(cpf="88899900011")
+    # completa e-mail dos dois pelo painel
+    client.patch(f"/v1/admin/usuarios/{a}", json={"nome": "Ana", "email": "ana@x.com"})
+    client.patch(f"/v1/admin/usuarios/{b}", json={"nome": "Bia", "email": "bia@x.com"})
+
+    # Bia faz opt-out de e-mail pelo app
+    resp = client.patch(f"/v1/wallet/{b}/comunicacoes", json={"aceita_comunicacoes_email": False})
+    assert resp.status_code == 200
+    assert resp.json()["aceita_comunicacoes_email"] is False
+
+    # export padrao (so opt-in com e-mail): Ana entra, Bia nao
+    export = client.get("/v1/admin/usuarios/export")
+    assert export.status_code == 200
+    assert "text/csv" in export.headers["content-type"]
+    assert "ana@x.com" in export.text
+    assert "bia@x.com" not in export.text
+    assert "cpf" not in export.text.splitlines()[0]  # minimizacao: sem CPF
+
+    # export completo (auditoria) inclui as duas com o status de consentimento
+    completo = client.get("/v1/admin/usuarios/export", params={"apenas_opt_in_email": "false"})
+    assert "bia@x.com" in completo.text
+
+
+def test_opt_in_de_push_e_registrado(client, criar_conta_ativa):
+    account_id = criar_conta_ativa()
+    resp = client.patch(f"/v1/wallet/{account_id}/comunicacoes", json={"aceita_comunicacoes_push": True})
+    assert resp.json()["aceita_comunicacoes_push"] is True
+    # padrao de email permanece intacto (nao enviado no payload)
+    assert resp.json()["aceita_comunicacoes_email"] is True

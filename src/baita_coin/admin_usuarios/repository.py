@@ -147,6 +147,27 @@ def atualizar_usuario(conn: Connection, account_id: UUID, campos: dict) -> Row:
     ).first()
 
 
+def list_para_export(conn: Connection, apenas_opt_in_email: bool) -> List[Row]:
+    """Base pra exportacao de comunicacoes. Sem CPF (minimizacao de dados):
+    a ferramenta de e-mail so precisa de nome/e-mail/segmentos."""
+    filtro = (
+        "AND aceita_comunicacoes_email = true AND email IS NOT NULL"
+        if apenas_opt_in_email
+        else ""
+    )
+    return conn.execute(
+        text(
+            f"""
+            SELECT account_id, nome, email, celular, status, tags,
+                   aceita_comunicacoes_email, aceita_comunicacoes_push, criado_em
+            FROM wallet_accounts
+            WHERE status = 'ativa' {filtro}
+            ORDER BY criado_em ASC
+            """
+        )
+    ).all()
+
+
 def registrar_alteracao(conn: Connection, account_id: UUID, acao: str, campos: dict) -> None:
     """Trilha de auditoria imutavel de toda acao administrativa no cadastro."""
     conn.execute(

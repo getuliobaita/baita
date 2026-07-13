@@ -74,6 +74,8 @@ def _account_row_to_response(row: Row, senha_enviada_whatsapp: bool = False) -> 
         nome=getattr(row, "nome", None),
         email=getattr(row, "email", None),
         foto_url=getattr(row, "foto_url", None),
+        aceita_comunicacoes_email=getattr(row, "aceita_comunicacoes_email", True),
+        aceita_comunicacoes_push=getattr(row, "aceita_comunicacoes_push", False),
         senha_enviada_whatsapp=senha_enviada_whatsapp,
         tem_senha=bool(getattr(row, "senha_hash", None)),
         celular=getattr(row, "celular", None),
@@ -382,6 +384,20 @@ def registrar_evento(engine: Engine, payload: EventoRequest) -> EventoResponse:
             raise EventoInvalido("falha ao registrar evento por conflito de idempotency_key")
         _validar_payload_compativel(existing, payload, coins, valor_reais)
         return _resposta_ja_processado(conn, existing)
+
+
+def atualizar_comunicacoes(
+    engine: Engine, account_id: UUID, email: Optional[bool], push: Optional[bool]
+) -> CriarContaResponse:
+    """Opt-in/opt-out de comunicacoes (e-mail em massa, push). O carimbo de
+    data fica registrado -- e a base de consentimento LGPD dos envios."""
+    with engine.begin() as conn:
+        conta = repo.set_comunicacoes(conn, account_id, email, push)
+        if conta is None:
+            raise ContaNaoEncontrada(
+                "account_id nao encontrado", detalhes={"account_id": str(account_id)}
+            )
+        return _account_row_to_response(conta)
 
 
 def definir_foto_perfil(

@@ -182,6 +182,32 @@ def excluir_usuario(engine: Engine, account_id: UUID) -> None:
         repo.excluir_usuario_sem_movimentacoes(conn, account_id)
 
 
+def exportar_base_csv(engine: Engine, apenas_opt_in_email: bool = True) -> str:
+    """CSV da base ativa pra ferramenta de e-mail/push (Brevo, OneSignal...).
+    Por padrao so quem consentiu e tem e-mail; sem CPF (minimizacao LGPD)."""
+    import csv
+    import io
+
+    with engine.begin() as conn:
+        rows = repo.list_para_export(conn, apenas_opt_in_email)
+
+    saida = io.StringIO()
+    escritor = csv.writer(saida)
+    escritor.writerow(
+        ["account_id", "nome", "email", "celular", "tags",
+         "aceita_email", "aceita_push", "cadastrado_em"]
+    )
+    for r in rows:
+        escritor.writerow([
+            r.account_id, r.nome or "", r.email or "", r.celular or "",
+            "|".join(r.tags or []),
+            "sim" if r.aceita_comunicacoes_email else "nao",
+            "sim" if r.aceita_comunicacoes_push else "nao",
+            r.criado_em.date().isoformat(),
+        ])
+    return saida.getvalue()
+
+
 def resetar_dados_usuarios(engine: Engine, payload: ResetDadosRequest) -> ResetDadosResponse:
     """Zera os cadastros de teste (pre-lancamento). Protecoes: rota
     /v1/internal (API key do manager), frase de confirmacao exata e o

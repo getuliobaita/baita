@@ -36,6 +36,26 @@ def set_foto_url(conn: Connection, account_id: UUID, foto_url: str) -> Optional[
     ).first()
 
 
+def set_comunicacoes(
+    conn: Connection, account_id: UUID, email: Optional[bool], push: Optional[bool]
+) -> Optional[Row]:
+    """Registra o consentimento de comunicacoes com carimbo de QUANDO mudou
+    (base de auditoria LGPD pro envio em massa)."""
+    return conn.execute(
+        text(
+            """
+            UPDATE wallet_accounts
+            SET aceita_comunicacoes_email = COALESCE(:email, aceita_comunicacoes_email),
+                aceita_comunicacoes_push = COALESCE(:push, aceita_comunicacoes_push),
+                comunicacoes_atualizado_em = now()
+            WHERE account_id = :id
+            RETURNING *
+            """
+        ),
+        {"email": email, "push": push, "id": str(account_id)},
+    ).first()
+
+
 def completar_cadastro(conn: Connection, account_id: UUID, dados: dict) -> Row:
     """Preenche APENAS campos ainda nulos (COALESCE com o valor existente
     primeiro) -- completar cadastro nunca sobrescreve dado ja gravado."""

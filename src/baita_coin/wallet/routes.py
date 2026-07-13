@@ -7,6 +7,7 @@ from baita_coin.db import engine as default_engine
 from baita_coin.notificacoes.whatsapp import MockWhatsAppAdapter, WhatsAppAdapter
 from baita_coin.wallet import service
 from baita_coin.wallet.schemas import (
+    AtualizarComunicacoesRequest,
     CriarContaRequest,
     CriarContaResponse,
     EventoRequest,
@@ -76,6 +77,16 @@ def registrar_evento_endpoint(
 @router.get("/v1/wallet/{account_id}/saldo", response_model=SaldoResponse)
 def obter_saldo_endpoint(account_id: UUID, engine: Engine = Depends(get_engine)) -> SaldoResponse:
     return service.consultar_saldo(engine, account_id)
+
+
+@router.patch("/v1/wallet/{account_id}/comunicacoes", response_model=CriarContaResponse)
+def atualizar_comunicacoes_endpoint(
+    account_id: UUID, payload: AtualizarComunicacoesRequest, engine: Engine = Depends(get_engine)
+) -> CriarContaResponse:
+    """Opt-in/opt-out de e-mail e push -- consentimento com carimbo de data."""
+    return service.atualizar_comunicacoes(
+        engine, account_id, payload.aceita_comunicacoes_email, payload.aceita_comunicacoes_push
+    )
 
 
 @router.post("/v1/wallet/{account_id}/foto", response_model=CriarContaResponse, status_code=201)
