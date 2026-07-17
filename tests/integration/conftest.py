@@ -150,8 +150,8 @@ def client(test_engine):
     from baita_coin.fiscal.routes import get_engine as get_fiscal_engine
     from baita_coin.main import create_app
     from baita_coin.notas_fiscais.routes import get_engine as get_notas_fiscais_engine
-    from baita_coin.painel.routes import get_engine as get_painel_engine
     from baita_coin.pagamentos.routes import get_engine as get_pagamentos_engine
+    from baita_coin.painel.routes import get_engine as get_painel_engine
     from baita_coin.resgates.routes import get_engine as get_resgates_engine
     from baita_coin.site_config.routes import get_engine as get_site_config_engine
     from baita_coin.sorteios.routes import get_engine as get_sorteios_engine
