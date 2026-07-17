@@ -14,6 +14,7 @@ from baita_coin.config import settings
 from baita_coin.fiscal.routes import router as fiscal_router
 from baita_coin.notas_fiscais.routes import router as notas_fiscais_router
 from baita_coin.pagamentos.routes import router as pagamentos_router
+from baita_coin.painel.routes import router as painel_router
 from baita_coin.resgates.routes import router as resgates_router
 from baita_coin.site_config.routes import router as site_config_router
 from baita_coin.sorteios.routes import router as sorteios_router
@@ -96,6 +97,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_usuarios_router)
     app.include_router(fiscal_router)
     app.include_router(site_config_router)
+    app.include_router(painel_router)
 
     @app.get("/health")
     def health() -> dict:
