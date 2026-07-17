@@ -30,6 +30,15 @@ class Settings(BaseSettings):
     # validade de um lote de credito (regra confirmada na spec: 90 dias)
     dias_validade_lote: int = 90
 
+    # Envio de WhatsApp: "mock" (padrao, loga) ou "meta" (Cloud API real).
+    # Com "meta", exige token + phone_number_id + o nome do template de
+    # autenticacao aprovado (categoria Authentication, com o codigo no corpo).
+    whatsapp_provider: str = "mock"
+    whatsapp_meta_token: Optional[str] = None
+    whatsapp_meta_phone_number_id: Optional[str] = None
+    whatsapp_meta_template_otp: Optional[str] = None
+    whatsapp_meta_idioma: str = "pt_BR"
+
     # OTP (login por codigo via SMS/WhatsApp)
     otp_validade_segundos: int = 300          # 5 min
     otp_max_tentativas: int = 5               # erros por codigo antes de invalidar

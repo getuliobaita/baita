@@ -165,7 +165,7 @@ def criar_conta(
                 enviada = False
                 if senha_temporaria and senha_aplicada and row.celular and whatsapp is not None:
                     whatsapp.enviar(
-                        MensagemWhatsApp(celular=row.celular, texto=_mensagem_senha(row.nome, senha_temporaria))
+                        MensagemWhatsApp(celular=row.celular, texto=_mensagem_senha(row.nome, senha_temporaria), codigo=senha_temporaria)
                     )
                     enviada = True
                 return _account_row_to_response(row, senha_enviada_whatsapp=enviada), False
@@ -176,7 +176,7 @@ def criar_conta(
         enviada = False
         if senha_temporaria and whatsapp is not None:
             whatsapp.enviar(
-                MensagemWhatsApp(celular=dados_cadastro["celular"], texto=_mensagem_senha(payload.nome, senha_temporaria))
+                MensagemWhatsApp(celular=dados_cadastro["celular"], texto=_mensagem_senha(payload.nome, senha_temporaria), codigo=senha_temporaria)
             )
             enviada = True
         return _account_row_to_response(row, senha_enviada_whatsapp=enviada), True
@@ -242,7 +242,7 @@ def reenviar_senha(
         celular = row.celular
         nome = row.nome
 
-    whatsapp.enviar(MensagemWhatsApp(celular=celular, texto=_mensagem_senha(nome, senha_nova)))
+    whatsapp.enviar(MensagemWhatsApp(celular=celular, texto=_mensagem_senha(nome, senha_nova), codigo=senha_nova))
     return ReenviarSenhaResponse(
         senha_enviada_whatsapp=True, celular_mascarado=_mascarar_celular(celular)
     )
@@ -292,7 +292,7 @@ def solicitar_otp(
         celular, nome = row.celular, row.nome
 
     validade_min = settings.otp_validade_segundos // 60
-    whatsapp.enviar(MensagemWhatsApp(celular=celular, texto=_mensagem_otp(nome, codigo, validade_min)))
+    whatsapp.enviar(MensagemWhatsApp(celular=celular, texto=_mensagem_otp(nome, codigo, validade_min), codigo=codigo))
     return SolicitarOtpResponse(
         enviado=True,
         celular_mascarado=_mascarar_celular(celular),

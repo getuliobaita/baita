@@ -1,10 +1,16 @@
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Response, UploadFile
 from sqlalchemy.engine import Engine
 
+from baita_coin.config import settings
 from baita_coin.db import engine as default_engine
-from baita_coin.notificacoes.whatsapp import MockWhatsAppAdapter, WhatsAppAdapter
+from baita_coin.notificacoes.whatsapp import (
+    MetaWhatsAppAdapter,
+    MockWhatsAppAdapter,
+    WhatsAppAdapter,
+)
 from baita_coin.wallet import service
 from baita_coin.wallet.schemas import (
     AtualizarComunicacoesRequest,
@@ -25,6 +31,7 @@ router = APIRouter()
 
 # Singleton de modulo -- testes acessam pra inspecionar mensagens "enviadas".
 whatsapp_adapter_padrao = MockWhatsAppAdapter()
+_whatsapp_meta: Optional[WhatsAppAdapter] = None
 
 
 def get_engine() -> Engine:
@@ -32,6 +39,23 @@ def get_engine() -> Engine:
 
 
 def get_whatsapp_adapter() -> WhatsAppAdapter:
+    """Mesmo padrao dos outros adapters: real (Meta) so quando as env vars
+    existem; sem elas, mock (dev/teste). Nunca envia de verdade em teste."""
+    global _whatsapp_meta
+    if (
+        settings.whatsapp_provider == "meta"
+        and settings.whatsapp_meta_token
+        and settings.whatsapp_meta_phone_number_id
+        and settings.whatsapp_meta_template_otp
+    ):
+        if _whatsapp_meta is None:
+            _whatsapp_meta = MetaWhatsAppAdapter(
+                settings.whatsapp_meta_token,
+                settings.whatsapp_meta_phone_number_id,
+                settings.whatsapp_meta_template_otp,
+                settings.whatsapp_meta_idioma,
+            )
+        return _whatsapp_meta
     return whatsapp_adapter_padrao
 
 
