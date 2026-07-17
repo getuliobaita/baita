@@ -117,6 +117,26 @@ def get_account_by_cpf(conn: Connection, cpf: str) -> Optional[Row]:
     ).first()
 
 
+def get_account_by_cpf_ou_celular(conn: Connection, digitos: str) -> Optional[Row]:
+    """Busca a conta por CPF OU celular (ambos tem 11 digitos, entao nao da
+    pra distinguir pelo formato -- procuramos nos dois). O celular no banco
+    e normalizado pra so-digitos na comparacao. Em caso de colisao (o CPF de
+    alguem == o celular de outro), a correspondencia por CPF vence (campo de
+    identidade)."""
+    return conn.execute(
+        text(
+            """
+            SELECT * FROM wallet_accounts
+            WHERE cpf = :d
+               OR regexp_replace(COALESCE(celular, ''), '\\D', '', 'g') = :d
+            ORDER BY (cpf = :d) DESC
+            LIMIT 1
+            """
+        ),
+        {"d": digitos},
+    ).first()
+
+
 def create_account(
     conn: Connection,
     account_id: UUID,

@@ -153,3 +153,32 @@ def test_foto_de_perfil_em_conta_inexistente_retorna_404(client):
     )
     assert resp.status_code == 404
     assert resp.json()["erro"]["codigo"] == "CONTA_NAO_ENCONTRADA"
+
+
+def test_busca_por_cpf_ou_celular_encontra_pelos_dois(client):
+    # cria conta completando CPF + celular
+    criada = client.post(
+        "/v1/wallet/contas",
+        json={"cpf": "33344455566", "nome": "Rafa", "celular": "51988887777"},
+    ).json()
+    aid = criada["account_id"]
+
+    # acha pelo CPF
+    por_cpf = client.get("/v1/wallet/contas/buscar/33344455566")
+    assert por_cpf.status_code == 200
+    assert por_cpf.json()["account_id"] == aid
+
+    # acha pelo celular (com e sem máscara)
+    por_cel = client.get("/v1/wallet/contas/buscar/51988887777")
+    assert por_cel.status_code == 200
+    assert por_cel.json()["account_id"] == aid
+
+    com_mascara = client.get("/v1/wallet/contas/buscar/(51) 98888-7777")
+    assert com_mascara.status_code == 200
+    assert com_mascara.json()["account_id"] == aid
+
+
+def test_busca_sem_conta_retorna_404_para_ir_ao_cadastro(client):
+    resp = client.get("/v1/wallet/contas/buscar/51900001111")
+    assert resp.status_code == 404
+    assert resp.json()["erro"]["codigo"] == "CONTA_NAO_ENCONTRADA"

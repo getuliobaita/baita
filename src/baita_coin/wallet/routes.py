@@ -65,6 +65,16 @@ def buscar_conta_por_cpf_endpoint(cpf: str, engine: Engine = Depends(get_engine)
     return service.buscar_conta_por_cpf(engine, cpf)
 
 
+@router.get("/v1/wallet/contas/buscar/{identificador}", response_model=CriarContaResponse)
+def buscar_conta_endpoint(
+    identificador: str, engine: Engine = Depends(get_engine)
+) -> CriarContaResponse:
+    """Login/cadastro por CPF OU celular. O app manda o que o usuario digitou
+    (com ou sem mascara); 200 = conta existe (-> senha), 404 = nao existe
+    (-> cadastro completo). Substitui a busca so-por-CPF no fluxo de entrada."""
+    return service.buscar_conta_por_identificador(engine, identificador)
+
+
 @router.post("/v1/internal/wallet/eventos", response_model=EventoResponse)
 def registrar_evento_endpoint(
     payload: EventoRequest, response: Response, engine: Engine = Depends(get_engine)

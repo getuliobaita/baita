@@ -99,6 +99,25 @@ def buscar_conta_por_cpf(engine: Engine, cpf: str) -> CriarContaResponse:
         return _account_row_to_response(row)
 
 
+def buscar_conta_por_identificador(engine: Engine, identificador: str) -> CriarContaResponse:
+    """Login/cadastro por CPF OU celular: o app manda o que o usuario digitou
+    (com ou sem mascara), normalizamos pra so-digitos e procuramos nos dois
+    campos. 404 = nao existe -> app leva pro cadastro; 200 = existe -> senha."""
+    digitos = "".join(c for c in identificador if c.isdigit())
+    if len(digitos) < 11:
+        raise ContaNaoEncontrada(
+            "identificador invalido: informe um CPF ou celular com DDD",
+            detalhes={"identificador": identificador},
+        )
+    with engine.begin() as conn:
+        row = repo.get_account_by_cpf_ou_celular(conn, digitos)
+        if row is None:
+            raise ContaNaoEncontrada(
+                "nenhuma conta com este CPF ou celular", detalhes={"identificador": digitos}
+            )
+        return _account_row_to_response(row)
+
+
 def _mensagem_senha(nome: Optional[str], senha: str) -> str:
     primeiro_nome = (nome or "").split(" ")[0]
     saudacao = f"Oi, {primeiro_nome}! " if primeiro_nome else "Oi! "
