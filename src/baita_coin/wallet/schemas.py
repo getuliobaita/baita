@@ -101,6 +101,21 @@ class ContaResponse(BaseModel):
 CriarContaResponse = ContaResponse
 
 
+class SolicitarOtpRequest(BaseModel):
+    identificador: str  # cpf ou celular (o codigo vai pro celular da conta)
+
+
+class SolicitarOtpResponse(BaseModel):
+    enviado: bool
+    celular_mascarado: Optional[str] = None
+    expira_em_segundos: int
+
+
+class VerificarOtpRequest(BaseModel):
+    identificador: str
+    codigo: str = Field(min_length=4, max_length=8)
+
+
 class AtualizarComunicacoesRequest(BaseModel):
     aceita_comunicacoes_email: Optional[bool] = None
     aceita_comunicacoes_push: Optional[bool] = None

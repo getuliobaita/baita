@@ -12,6 +12,12 @@ def gerar_senha_temporaria(tamanho: int = 8) -> str:
     return "".join(secrets.choice(_ALFABETO_TEMP) for _ in range(tamanho))
 
 
+def gerar_codigo_otp(digitos: int = 6) -> str:
+    """Codigo numerico de uso unico (login por SMS/WhatsApp). Numerico puro
+    pra ser facil de digitar; secrets pra ser imprevisivel."""
+    return "".join(secrets.choice("0123456789") for _ in range(digitos))
+
+
 def hash_senha(senha: str) -> str:
     salt = secrets.token_hex(16)
     digest = hashlib.pbkdf2_hmac("sha256", senha.encode(), bytes.fromhex(salt), _ITERACOES)

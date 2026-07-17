@@ -137,6 +137,64 @@ def get_account_by_cpf_ou_celular(conn: Connection, digitos: str) -> Optional[Ro
     ).first()
 
 
+def contar_otps_recentes(conn: Connection, account_id: UUID, desde_segundos: int) -> int:
+    return conn.execute(
+        text(
+            """
+            SELECT count(*) FROM otp_codigos
+            WHERE account_id = :id
+              AND criado_em > now() - make_interval(secs => :seg)
+            """
+        ),
+        {"id": str(account_id), "seg": desde_segundos},
+    ).scalar()
+
+
+def insert_otp(
+    conn: Connection, account_id: UUID, codigo_hash: str, validade_segundos: int, canal: str
+) -> None:
+    conn.execute(
+        text(
+            """
+            INSERT INTO otp_codigos (account_id, codigo_hash, canal, expira_em)
+            VALUES (:id, :hash, :canal, now() + make_interval(secs => :seg))
+            """
+        ),
+        {"id": str(account_id), "hash": codigo_hash, "canal": canal, "seg": validade_segundos},
+    )
+
+
+def get_otp_vigente(conn: Connection, account_id: UUID) -> Optional[Row]:
+    """O codigo mais recente da conta que ainda vale (nao usado, nao
+    expirado), travado pra leitura -- serializa verificacoes concorrentes."""
+    return conn.execute(
+        text(
+            """
+            SELECT * FROM otp_codigos
+            WHERE account_id = :id AND usado_em IS NULL AND expira_em > now()
+            ORDER BY criado_em DESC
+            LIMIT 1
+            FOR UPDATE
+            """
+        ),
+        {"id": str(account_id)},
+    ).first()
+
+
+def incrementar_tentativa_otp(conn: Connection, otp_id: UUID) -> None:
+    conn.execute(
+        text("UPDATE otp_codigos SET tentativas = tentativas + 1 WHERE otp_id = :id"),
+        {"id": str(otp_id)},
+    )
+
+
+def marcar_otp_usado(conn: Connection, otp_id: UUID) -> None:
+    conn.execute(
+        text("UPDATE otp_codigos SET usado_em = now() WHERE otp_id = :id"),
+        {"id": str(otp_id)},
+    )
+
+
 def create_account(
     conn: Connection,
     account_id: UUID,

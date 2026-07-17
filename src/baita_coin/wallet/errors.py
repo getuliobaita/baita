@@ -75,3 +75,17 @@ class CredenciaisInvalidas(DomainError):
 class ContaSemCelular(DomainError):
     codigo = "CONTA_SEM_CELULAR"
     status_code = 422
+
+
+class CodigoInvalido(DomainError):
+    """Codigo OTP errado, expirado, ja usado ou com tentativas esgotadas."""
+
+    codigo = "CODIGO_INVALIDO"
+    status_code = 401
+
+
+class MuitosCodigosSolicitados(DomainError):
+    """Rate limit: pediu codigo demais em pouco tempo (anti-flood de SMS)."""
+
+    codigo = "MUITOS_CODIGOS_SOLICITADOS"
+    status_code = 429

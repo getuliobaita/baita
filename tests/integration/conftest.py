@@ -42,6 +42,7 @@ _TABELAS_EM_ORDEM_DE_LIMPEZA = [
     "anuncios",
     "anuncios_imagens",
     "admin_usuarios_alteracoes",
+    "otp_codigos",
     "lotes_creditos",
     "ledger_events",
     "campanhas_multiplicador",

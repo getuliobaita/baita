@@ -16,6 +16,9 @@ from baita_coin.wallet.schemas import (
     ReenviarSenhaRequest,
     ReenviarSenhaResponse,
     SaldoResponse,
+    SolicitarOtpRequest,
+    SolicitarOtpResponse,
+    VerificarOtpRequest,
 )
 
 router = APIRouter()
@@ -56,6 +59,26 @@ def reenviar_senha_endpoint(
     whatsapp: WhatsAppAdapter = Depends(get_whatsapp_adapter),
 ) -> ReenviarSenhaResponse:
     return service.reenviar_senha(engine, payload, whatsapp)
+
+
+@router.post("/v1/wallet/otp/solicitar", response_model=SolicitarOtpResponse)
+def solicitar_otp_endpoint(
+    payload: SolicitarOtpRequest,
+    engine: Engine = Depends(get_engine),
+    whatsapp: WhatsAppAdapter = Depends(get_whatsapp_adapter),
+) -> SolicitarOtpResponse:
+    """Login por codigo: envia um codigo de acesso pro celular cadastrado da
+    conta (identificada por CPF ou celular). Base do 'entrar sem senha' e do
+    'esqueci minha senha'."""
+    return service.solicitar_otp(engine, whatsapp, payload.identificador)
+
+
+@router.post("/v1/wallet/otp/verificar", response_model=CriarContaResponse)
+def verificar_otp_endpoint(
+    payload: VerificarOtpRequest, engine: Engine = Depends(get_engine)
+) -> CriarContaResponse:
+    """Confere o codigo e autentica (devolve a conta). 401 = codigo invalido."""
+    return service.verificar_otp(engine, payload.identificador, payload.codigo)
 
 
 @router.get("/v1/wallet/contas/cpf/{cpf}", response_model=CriarContaResponse)

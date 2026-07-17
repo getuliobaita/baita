@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     # validade de um lote de credito (regra confirmada na spec: 90 dias)
     dias_validade_lote: int = 90
 
+    # OTP (login por codigo via SMS/WhatsApp)
+    otp_validade_segundos: int = 300          # 5 min
+    otp_max_tentativas: int = 5               # erros por codigo antes de invalidar
+    otp_max_codigos_por_janela: int = 3       # anti-flood: codigos por conta...
+    otp_janela_rate_limit_segundos: int = 900  # ...a cada 15 min
+
     # Protege /v1/internal/* e /v1/admin/* com um header compartilhado.
     # Se None/vazio (padrao local/teste), a checagem fica desligada -- NUNCA
     # deixar isso vazio em producao, senao qualquer um na internet consegue

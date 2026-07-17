@@ -25,6 +25,7 @@ from baita_coin.wallet.constants import (
     TipoEvento,
 )
 from baita_coin.wallet.errors import (
+    CodigoInvalido,
     ContaBloqueada,
     ContaNaoEncontrada,
     ContaSemCelular,
@@ -33,6 +34,7 @@ from baita_coin.wallet.errors import (
     EventoInvalido,
     IdempotencyKeyConflitante,
     LoteInvalidoParaExpiracao,
+    MuitosCodigosSolicitados,
 )
 from baita_coin.wallet.fifo import calcular_alocacao_fifo
 from baita_coin.wallet.schemas import (
@@ -44,8 +46,14 @@ from baita_coin.wallet.schemas import (
     ReenviarSenhaRequest,
     ReenviarSenhaResponse,
     SaldoResponse,
+    SolicitarOtpResponse,
 )
-from baita_coin.wallet.senha import gerar_senha_temporaria, hash_senha, verificar_senha
+from baita_coin.wallet.senha import (
+    gerar_codigo_otp,
+    gerar_senha_temporaria,
+    hash_senha,
+    verificar_senha,
+)
 
 _CONSTRAINT_IDEMPOTENCY_KEY = "ledger_events_idempotency_key_key"
 _CONSTRAINT_CPF = "wallet_accounts_cpf_key"
@@ -238,6 +246,86 @@ def reenviar_senha(
     return ReenviarSenhaResponse(
         senha_enviada_whatsapp=True, celular_mascarado=_mascarar_celular(celular)
     )
+
+
+# ---------------------------------------------------------------------------
+# Login por codigo (OTP via SMS/WhatsApp) -- entra sem depender de senha
+# ---------------------------------------------------------------------------
+
+
+def _mensagem_otp(nome: Optional[str], codigo: str, validade_min: int) -> str:
+    ola = f"Oi, {nome.split(' ')[0]}! " if nome else "Oi! "
+    return (
+        f"{ola}Teu codigo de acesso Baita e {codigo}. "
+        f"Vale por {validade_min} minutos. Nao compartilhe com ninguem."
+    )
+
+
+def solicitar_otp(
+    engine: Engine, whatsapp: WhatsAppAdapter, identificador: str
+) -> SolicitarOtpResponse:
+    """Gera e envia um codigo de acesso pro celular JA CADASTRADO da conta
+    (o numero nunca vem do request -- evita redirecionar o codigo). Com rate
+    limit anti-flood. So-por-CPF-ou-celular como a busca de login."""
+    digitos = "".join(c for c in identificador if c.isdigit())
+    with engine.begin() as conn:
+        row = repo.get_account_by_cpf_ou_celular(conn, digitos) if len(digitos) >= 11 else None
+        if row is None:
+            raise ContaNaoEncontrada(
+                "nenhuma conta com este CPF ou celular", detalhes={"identificador": digitos}
+            )
+        if not row.celular:
+            raise ContaSemCelular(
+                "esta conta nao tem celular cadastrado -- fale com o atendimento"
+            )
+        recentes = repo.contar_otps_recentes(
+            conn, row.account_id, settings.otp_janela_rate_limit_segundos
+        )
+        if recentes >= settings.otp_max_codigos_por_janela:
+            raise MuitosCodigosSolicitados(
+                "Muitos codigos pedidos em pouco tempo. Aguarde alguns minutos e tente de novo."
+            )
+        codigo = gerar_codigo_otp()
+        repo.insert_otp(
+            conn, row.account_id, hash_senha(codigo), settings.otp_validade_segundos, "whatsapp"
+        )
+        celular, nome = row.celular, row.nome
+
+    validade_min = settings.otp_validade_segundos // 60
+    whatsapp.enviar(MensagemWhatsApp(celular=celular, texto=_mensagem_otp(nome, codigo, validade_min)))
+    return SolicitarOtpResponse(
+        enviado=True,
+        celular_mascarado=_mascarar_celular(celular),
+        expira_em_segundos=settings.otp_validade_segundos,
+    )
+
+
+def verificar_otp(engine: Engine, identificador: str, codigo: str) -> CriarContaResponse:
+    """Confere o codigo e, se valido, autentica (devolve a conta). Codigo
+    errado incrementa a tentativa; estourou o maximo, invalida o codigo."""
+    digitos = "".join(c for c in identificador if c.isdigit())
+    with engine.begin() as conn:
+        row = repo.get_account_by_cpf_ou_celular(conn, digitos) if len(digitos) >= 11 else None
+        if row is None:
+            raise CodigoInvalido("codigo invalido ou expirado")
+
+        otp = repo.get_otp_vigente(conn, row.account_id)
+        if otp is None:
+            raise CodigoInvalido("codigo invalido ou expirado")
+        if otp.tentativas >= settings.otp_max_tentativas:
+            raise CodigoInvalido("codigo bloqueado por excesso de tentativas -- peca um novo")
+
+        if verificar_senha(codigo, otp.codigo_hash):
+            repo.marcar_otp_usado(conn, otp.otp_id)
+            return _account_row_to_response(row)
+        otp_id_errado = otp.otp_id
+
+    # Codigo errado: a tentativa precisa ser PERSISTIDA numa transacao propria.
+    # Se incrementassemos e desse raise na mesma transacao, o rollback do erro
+    # desfaria a contagem -- e o bloqueio por tentativas nunca aconteceria.
+    with engine.begin() as conn:
+        repo.incrementar_tentativa_otp(conn, otp_id_errado)
+    raise CodigoInvalido("codigo invalido ou expirado")
 
 
 def _validar_payload_compativel(existing: Row, payload: EventoRequest, coins: Decimal, valor_reais: Optional[Decimal]) -> None:
