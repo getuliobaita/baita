@@ -264,13 +264,15 @@ def test_override_de_coins_do_plano_vale_no_credito(client, criar_conta_ativa):
     assert numeros["total"] == 1  # 1 número, não 5 (100//20) — título travado no valor
 
 
-def test_override_de_numeros_e_ignorado_sem_a_trava_da_viacap(client, criar_conta_ativa):
-    # plano tenta dar 5 números num pacote de R$20 — sem a trava, backend ignora
+def test_override_de_numeros_pode_ser_desligado_por_env(client, criar_conta_ativa, monkeypatch):
+    from baita_coin.config import settings
+    # trava reversível: desligada, o backend ignora o override e volta ao SUSEP
+    monkeypatch.setattr(settings, "planos_numeros_override_habilitado", False)
     plano = client.post(
         "/v1/admin/planos",
         json={"nome": "Plano N", "quantidade_pacotes": 1, "numeros_sorte_override": 5, "ordem": 91},
     ).json()
-    # override guardado, mas efetivo continua 1 (R$20 = 1 título)
+    # override guardado, mas efetivo cai pra 1 (R$20 = 1 título) com a trava off
     assert plano["numeros_sorte_override"] == 5
     assert plano["numeros_sorte"] == 1
 
@@ -280,15 +282,13 @@ def test_override_de_numeros_e_ignorado_sem_a_trava_da_viacap(client, criar_cont
     assert numeros["total"] == 1  # ignorou o override de números (trava off)
 
 
-def test_override_de_numeros_vale_com_a_trava_ligada(client, criar_conta_ativa, monkeypatch):
-    from baita_coin.config import settings
-    monkeypatch.setattr(settings, "planos_numeros_override_habilitado", True)
-
+def test_override_de_numeros_vale_por_padrao(client, criar_conta_ativa):
+    # trava removida (default): o número cadastrado no manager vale direto
     plano = client.post(
         "/v1/admin/planos",
         json={"nome": "Plano N2", "quantidade_pacotes": 1, "numeros_sorte_override": 3, "ordem": 92},
     ).json()
-    assert plano["numeros_sorte"] == 3  # agora a trava está ligada
+    assert plano["numeros_sorte"] == 3  # override honrado por padrão
 
     account_id = criar_conta_ativa()
     _comprar_plano(client, account_id, plano["plano_id"], 1, "20.00", "novr2")

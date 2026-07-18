@@ -255,9 +255,10 @@ def _coins_efetivos_do_plano(row, coins_por_real: Decimal) -> Decimal:
 
 
 def _numeros_efetivos_do_plano(row) -> int:
-    """Numeros da sorte do plano. O override SO vale com a trava da VIACAP
-    ligada (cada numero = 1 titulo, SUSEP). Senao: 1 a cada R$20 (nivel do
-    titulo), independente dos coins -- coins nunca inflam titulos."""
+    """Numeros da sorte do plano. Por padrao o override do manager vale
+    direto (gestao do operador). Se a trava estiver desligada por env var,
+    cai no fallback SUSEP: 1 a cada R$20 (nivel do titulo), independente dos
+    coins -- coins nunca inflam titulos."""
     override = getattr(row, "numeros_sorte_override", None)
     if override is not None and settings.planos_numeros_override_habilitado:
         return int(override)
