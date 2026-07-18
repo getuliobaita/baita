@@ -172,3 +172,53 @@ def test_planos_seed_ganharam_configuracao_padrao(client):
     assert mensal["periodicidade"] == "mensal"
     assert "pix_recorrente" in mensal["metodos_pagamento"]
     assert len(mensal["vantagens"]) >= 1
+
+def test_plano_declara_coins_e_numeros_batendo_com_o_valor(client):
+    # plano de 5 pacotes = R$100 → 100 coins → 5 números da sorte (1 a cada 20)
+    criado = client.post(
+        "/v1/admin/planos",
+        json={"nome": "Plano 5", "quantidade_pacotes": 5, "ordem": 80},
+    ).json()
+    assert criado["valor_reais"] == "100.00"
+    assert criado["coins"] == "100.00"
+    assert criado["numeros_sorte"] == 5
+
+    # o público vê os mesmos números
+    publico = next(p for p in client.get("/v1/planos").json() if p["plano_id"] == criado["plano_id"])
+    assert publico["coins"] == "100.00"
+    assert publico["numeros_sorte"] == 5
+
+
+def test_coins_do_plano_seguem_a_taxa_da_mecanica(client):
+    # muda a taxa pra 1.5 coin/real na mecânica
+    client.patch("/v1/admin/mecanica", json={"coins_por_real": "1.5"})
+    criado = client.post(
+        "/v1/admin/planos",
+        json={"nome": "Plano Taxa", "quantidade_pacotes": 2, "ordem": 81},
+    ).json()
+    # R$40 x 1.5 = 60 coins → 3 números da sorte
+    assert criado["valor_reais"] == "40.00"
+    assert criado["coins"] == "60.00"
+    assert criado["numeros_sorte"] == 3
+
+    # e o que o plano promete é o que a compra credita de verdade
+    account = client.post("/v1/wallet/contas", json={"cpf": "70700700700"}).json()
+    compra = client.post(
+        "/v1/capitalizacao/compras",
+        json={
+            "account_id": account["account_id"],
+            "quantidade_pacotes": 2,
+            "metodo_pagamento": {"gateway": "mock", "metodo": "pix"},
+            "idempotency_key": "coins_plano_1",
+        },
+    ).json()
+    client.post(
+        "/v1/internal/webhooks/pagamento",
+        json={
+            "gateway": "mock", "gateway_transaction_id": "tx_cp",
+            "compra_id": compra["compra_id"], "status": "aprovado",
+            "valor_confirmado": "40.00", "idempotency_key": "coins_plano_wh",
+        },
+    )
+    saldo = client.get(f"/v1/wallet/{account['account_id']}/saldo").json()
+    assert saldo["saldo_coins"] == criado["coins"]  # 60.00 — plano == creditado

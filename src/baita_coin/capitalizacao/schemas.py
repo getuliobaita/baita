@@ -38,6 +38,10 @@ class PlanoResponse(BaseModel):
     nome: str
     quantidade_pacotes: int
     valor_reais: Decimal
+    # coins e numeros calculados pelo backend na taxa vigente -- o app exibe
+    # exatamente o que sera creditado, sem recalcular por conta propria
+    coins: Decimal
+    numeros_sorte: int
     descricao: Optional[str]
     destaque: bool
     ordem: int

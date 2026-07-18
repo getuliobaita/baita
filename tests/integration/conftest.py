@@ -87,6 +87,29 @@ def _limpar_tabelas(test_engine):
         conn.execute(
             text("UPDATE site_config SET conteudo = '{}'::jsonb, publicado_em = NULL, atualizado_em = now()")
         )
+        # regra de capitalizacao e config_operacional sao seed (nao truncados);
+        # testes que editam a mecanica os alteram -- restaura os padroes pra
+        # nao vazar estado entre testes.
+        conn.execute(
+            text(
+                "UPDATE regras_capitalizacao SET faixas = "
+                "'[{\"valor_min\": 0, \"valor_max\": null, \"coins_por_real\": 1.0}]'::jsonb"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE config_operacional SET valor = "
+                "'{\"horas_aceite_real\": 48, \"horas_comunicado_cliente\": 24}'::jsonb "
+                "WHERE chave = 'janela_aceite_nf'"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE config_operacional SET valor = "
+                "'{\"valor_maximo_por_cpf_dia\": 500.00}'::jsonb "
+                "WHERE chave = 'limite_antifraude_nf'"
+            )
+        )
 
 
 @pytest.fixture(autouse=True)

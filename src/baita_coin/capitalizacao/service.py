@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 
 from baita_coin.capitalizacao import repository as repo
 from baita_coin.capitalizacao.constants import (
+    COINS_POR_NUMERO_DA_SORTE,
     STATUS_COMPRA_AGUARDANDO,
     STATUS_COMPRA_CONFIRMADO,
     STATUS_COMPRA_REJEITADO,
@@ -231,12 +232,28 @@ def criar_compra(
 # ---------------------------------------------------------------------------
 
 
-def _plano_para_response(row: Row) -> PlanoResponse:
+def _coins_por_real_vigente(conn) -> Decimal:
+    """Taxa da regra de capitalizacao vigente -- MESMA fonte que a compra usa
+    pra creditar. Assim o plano exibe exatamente o que sera creditado, sem o
+    frontend adivinhar. Sem regra vigente, cai no 1:1."""
+    regra = repo.get_regra_vigente(conn, datetime.now(timezone.utc))
+    if regra is None or not regra.faixas:
+        return Decimal("1")
+    return Decimal(str(regra.faixas[0].get("coins_por_real", 1)))
+
+
+def _plano_para_response(row: Row, coins_por_real: Decimal) -> PlanoResponse:
+    valor = arredondar_centavos(VALOR_PACOTE_REAIS * row.quantidade_pacotes)
+    coins = arredondar_centavos(valor * coins_por_real)
+    # numeros da sorte: mesma regra do motor (1 a cada 20 coins, arredonda p/ baixo)
+    numeros_sorte = int(coins // COINS_POR_NUMERO_DA_SORTE)
     return PlanoResponse(
         plano_id=row.plano_id,
         nome=row.nome,
         quantidade_pacotes=row.quantidade_pacotes,
-        valor_reais=arredondar_centavos(VALOR_PACOTE_REAIS * row.quantidade_pacotes),
+        valor_reais=valor,
+        coins=coins,
+        numeros_sorte=numeros_sorte,
         descricao=row.descricao,
         destaque=row.destaque,
         ordem=row.ordem,
@@ -249,12 +266,14 @@ def _plano_para_response(row: Row) -> PlanoResponse:
 
 def listar_planos(engine: Engine) -> List[PlanoResponse]:
     with engine.begin() as conn:
-        return [_plano_para_response(r) for r in repo.list_planos_ativos(conn)]
+        taxa = _coins_por_real_vigente(conn)
+        return [_plano_para_response(r, taxa) for r in repo.list_planos_ativos(conn)]
 
 
 def listar_planos_admin(engine: Engine) -> List[PlanoResponse]:
     with engine.begin() as conn:
-        return [_plano_para_response(r) for r in repo.list_planos_admin(conn)]
+        taxa = _coins_por_real_vigente(conn)
+        return [_plano_para_response(r, taxa) for r in repo.list_planos_admin(conn)]
 
 
 def criar_plano(engine: Engine, payload: CriarPlanoRequest) -> PlanoResponse:
@@ -264,7 +283,7 @@ def criar_plano(engine: Engine, payload: CriarPlanoRequest) -> PlanoResponse:
             payload.destaque, payload.ordem,
             payload.metodos_pagamento, payload.periodicidade, payload.vantagens,
         )
-        return _plano_para_response(row)
+        return _plano_para_response(row, _coins_por_real_vigente(conn))
 
 
 def atualizar_plano(engine: Engine, plano_id: UUID, payload: AtualizarPlanoRequest) -> PlanoResponse:
@@ -277,7 +296,7 @@ def atualizar_plano(engine: Engine, plano_id: UUID, payload: AtualizarPlanoReque
             payload.destaque, payload.ordem, payload.status,
             payload.metodos_pagamento, payload.periodicidade, payload.vantagens,
         )
-        return _plano_para_response(row)
+        return _plano_para_response(row, _coins_por_real_vigente(conn))
 
 
 def _montar_detalhe(conn, compra: Row) -> CompraDetalheResponse:
