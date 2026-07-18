@@ -20,7 +20,6 @@ from sqlalchemy.exc import IntegrityError
 
 from baita_coin.capitalizacao import repository as repo
 from baita_coin.capitalizacao.constants import (
-    COINS_POR_NUMERO_DA_SORTE,
     STATUS_COMPRA_AGUARDANDO,
     STATUS_COMPRA_CONFIRMADO,
     STATUS_COMPRA_REJEITADO,
@@ -57,6 +56,7 @@ from baita_coin.capitalizacao.schemas import (
     WebhookPagamentoRequest,
     WebhookPagamentoResponse,
 )
+from baita_coin.config import settings
 from baita_coin.pagamentos.gateway import GatewayPagamentoAdapter
 from baita_coin.shared.dinheiro import arredondar_centavos
 from baita_coin.shared.postgres import constraint_violada
@@ -191,7 +191,10 @@ def criar_compra(
             }
 
             compra_id = uuid4()
-            repo.insert_compra(conn, compra_id, payload.account_id, payload.quantidade_pacotes, valor_reais, payload.idempotency_key)
+            repo.insert_compra(
+                conn, compra_id, payload.account_id, payload.quantidade_pacotes,
+                valor_reais, payload.idempotency_key, plano_id=payload.plano_id,
+            )
     except IntegrityError as exc:
         if constraint_violada(exc) != _CONSTRAINT_COMPRA_IDEMPOTENCY_KEY:
             raise
@@ -242,18 +245,36 @@ def _coins_por_real_vigente(conn) -> Decimal:
     return Decimal(str(regra.faixas[0].get("coins_por_real", 1)))
 
 
-def _plano_para_response(row: Row, coins_por_real: Decimal) -> PlanoResponse:
+def _coins_efetivos_do_plano(row, coins_por_real: Decimal) -> Decimal:
+    """Coins que o plano credita: override do plano se houver, senao valor x taxa."""
+    override = getattr(row, "coins_override", None)
+    if override is not None:
+        return arredondar_centavos(Decimal(override))
     valor = arredondar_centavos(VALOR_PACOTE_REAIS * row.quantidade_pacotes)
-    coins = arredondar_centavos(valor * coins_por_real)
-    # numeros da sorte: mesma regra do motor (1 a cada 20 coins, arredonda p/ baixo)
-    numeros_sorte = int(coins // COINS_POR_NUMERO_DA_SORTE)
+    return arredondar_centavos(valor * coins_por_real)
+
+
+def _numeros_efetivos_do_plano(row) -> int:
+    """Numeros da sorte do plano. O override SO vale com a trava da VIACAP
+    ligada (cada numero = 1 titulo, SUSEP). Senao: 1 a cada R$20 (nivel do
+    titulo), independente dos coins -- coins nunca inflam titulos."""
+    override = getattr(row, "numeros_sorte_override", None)
+    if override is not None and settings.planos_numeros_override_habilitado:
+        return int(override)
+    valor = arredondar_centavos(VALOR_PACOTE_REAIS * row.quantidade_pacotes)
+    return int(valor // VALOR_PACOTE_REAIS)
+
+
+def _plano_para_response(row: Row, coins_por_real: Decimal) -> PlanoResponse:
     return PlanoResponse(
         plano_id=row.plano_id,
         nome=row.nome,
         quantidade_pacotes=row.quantidade_pacotes,
-        valor_reais=valor,
-        coins=coins,
-        numeros_sorte=numeros_sorte,
+        valor_reais=arredondar_centavos(VALOR_PACOTE_REAIS * row.quantidade_pacotes),
+        coins=_coins_efetivos_do_plano(row, coins_por_real),
+        numeros_sorte=_numeros_efetivos_do_plano(row),
+        coins_override=getattr(row, "coins_override", None),
+        numeros_sorte_override=getattr(row, "numeros_sorte_override", None),
         descricao=row.descricao,
         destaque=row.destaque,
         ordem=row.ordem,
@@ -282,6 +303,8 @@ def criar_plano(engine: Engine, payload: CriarPlanoRequest) -> PlanoResponse:
             conn, uuid4(), payload.nome, payload.quantidade_pacotes, payload.descricao,
             payload.destaque, payload.ordem,
             payload.metodos_pagamento, payload.periodicidade, payload.vantagens,
+            coins_override=payload.coins_override,
+            numeros_sorte_override=payload.numeros_sorte_override,
         )
         return _plano_para_response(row, _coins_por_real_vigente(conn))
 
@@ -291,10 +314,16 @@ def atualizar_plano(engine: Engine, plano_id: UUID, payload: AtualizarPlanoReque
         existente = repo.get_plano(conn, plano_id)
         if existente is None:
             raise PlanoNaoEncontrado("plano_id nao encontrado", detalhes={"plano_id": str(plano_id)})
+        # so mexe no override se o campo foi ENVIADO no PATCH (permite limpar)
+        enviados = payload.model_fields_set
         row = repo.atualizar_plano(
             conn, plano_id, payload.nome, payload.quantidade_pacotes, payload.descricao,
             payload.destaque, payload.ordem, payload.status,
             payload.metodos_pagamento, payload.periodicidade, payload.vantagens,
+            coins_override=payload.coins_override,
+            numeros_sorte_override=payload.numeros_sorte_override,
+            set_coins_override="coins_override" in enviados,
+            set_numeros_override="numeros_sorte_override" in enviados,
         )
         return _plano_para_response(row, _coins_por_real_vigente(conn))
 
@@ -397,6 +426,20 @@ def processar_webhook_pagamento(engine: Engine, payload: WebhookPagamentoRequest
             campanhas_ativas=campanhas,
         )
 
+        # Override do plano (se a compra veio de um): coins exatos e/ou numeros
+        # fixos. Numeros so mudam com a trava da VIACAP ligada (cada numero =
+        # 1 titulo SUSEP) -- ver _coins_efetivos/_numeros_efetivos do plano.
+        plano = repo.get_plano(conn, compra.plano_id) if getattr(compra, "plano_id", None) else None
+        coins_a_creditar = (
+            arredondar_centavos(Decimal(plano.coins_override))
+            if plano is not None and plano.coins_override is not None
+            else resultado.coins_finais
+        )
+        if plano is not None:
+            numeros_a_emitir = _numeros_efetivos_do_plano(plano)
+        else:
+            numeros_a_emitir = resultado.quantidade_numeros_sorte
+
         event_id = uuid4()
         metadata = {
             "gateway": payload.gateway,
@@ -406,7 +449,9 @@ def processar_webhook_pagamento(engine: Engine, payload: WebhookPagamentoRequest
             "campanha_id": str(resultado.campanha_id) if resultado.campanha_id else None,
             "campanha_nome": campanhas_por_id[resultado.campanha_id].nome if resultado.campanha_id else None,
             "multiplicador_aplicado": str(resultado.multiplicador_aplicado),
-            "quantidade_numeros_sorte": resultado.quantidade_numeros_sorte,
+            "quantidade_numeros_sorte": numeros_a_emitir,
+            "plano_id": str(compra.plano_id) if getattr(compra, "plano_id", None) else None,
+            "coins_override_aplicado": bool(plano is not None and plano.coins_override is not None),
         }
 
         evento = wallet_repo.insert_ledger_event(
@@ -414,22 +459,22 @@ def processar_webhook_pagamento(engine: Engine, payload: WebhookPagamentoRequest
             event_id,
             compra.account_id,
             TipoEvento.COMPRA_CAPITALIZACAO.value,
-            resultado.coins_finais,
+            coins_a_creditar,
             Decimal(compra.valor_reais),
             compra.compra_id,
             f"cap_{compra.compra_id}",
             metadata,
         )
-        wallet_service.criar_lote_de_credito(conn, event_id, compra.account_id, resultado.coins_finais, evento.criado_em)
+        wallet_service.criar_lote_de_credito(conn, event_id, compra.account_id, coins_a_creditar, evento.criado_em)
 
-        if resultado.quantidade_numeros_sorte > 0:
+        if numeros_a_emitir > 0:
             sorteio = sorteios_repo.get_sorteio_aberto_for_update(conn)
             if sorteio is None:
                 raise NenhumSorteioAberto("nao ha sorteio aberto pra atribuir numeros da sorte")
             # numeros da sorte ALEATORIOS em [00000, 99999], nao repetidos na
             # serie (regra 3.1.4 do regulamento) -- um registro por numero.
             sorteios_repo.emitir_numeros_sorte_aleatorios(
-                conn, compra.account_id, event_id, sorteio.sorteio_id, resultado.quantidade_numeros_sorte
+                conn, compra.account_id, event_id, sorteio.sorteio_id, numeros_a_emitir
             )
 
         # Cabe em VARCHAR(50) (limite vem da spec original, nao alterado).

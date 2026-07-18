@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     # validade de um lote de credito (regra confirmada na spec: 90 dias)
     dias_validade_lote: int = 90
 
+    # Trava do override de NUMEROS DA SORTE por plano. Enquanto False, o
+    # painel pode cadastrar o valor, mas o backend IGNORA (numeros seguem
+    # R$20 = 1 titulo, regra SUSEP). Ligar SO apos a VIACAP autorizar o
+    # desacoplamento -- coins nao tem essa trava (moeda propria do clube).
+    planos_numeros_override_habilitado: bool = False
+
     # Envio de WhatsApp: "mock" (padrao, loga) ou "meta" (Cloud API real).
     # Com "meta", exige token + phone_number_id + o nome do template de
     # autenticacao aprovado (categoria Authentication, com o codigo no corpo).

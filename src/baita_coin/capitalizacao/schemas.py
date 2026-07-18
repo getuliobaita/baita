@@ -14,6 +14,9 @@ class CriarCompraRequest(BaseModel):
     quantidade_pacotes: int = Field(ge=MIN_PACOTES, le=MAX_PACOTES)
     metodo_pagamento: Dict[str, Any]
     idempotency_key: str = Field(min_length=1, max_length=100)
+    # vincula a compra ao plano escolhido -- necessario pra o override de
+    # coins/numeros do plano valer no credito, nao so na vitrine
+    plano_id: Optional[UUID] = None
 
 
 class DadosPagamento(BaseModel):
@@ -38,10 +41,13 @@ class PlanoResponse(BaseModel):
     nome: str
     quantidade_pacotes: int
     valor_reais: Decimal
-    # coins e numeros calculados pelo backend na taxa vigente -- o app exibe
-    # exatamente o que sera creditado, sem recalcular por conta propria
+    # coins e numeros EFETIVOS (o que o cliente recebe): override do plano se
+    # houver, senao derivado. O app exibe estes.
     coins: Decimal
     numeros_sorte: int
+    # valores brutos do override (pro manager ver/editar); null = derivado
+    coins_override: Optional[Decimal] = None
+    numeros_sorte_override: Optional[int] = None
     descricao: Optional[str]
     destaque: bool
     ordem: int
@@ -60,6 +66,10 @@ class CriarPlanoRequest(BaseModel):
     metodos_pagamento: List[MetodoPagamento] = Field(default_factory=lambda: ["pix"], min_length=1)
     periodicidade: Periodicidade = "unica"
     vantagens: List[str] = Field(default_factory=list)
+    # override opcional: total exato de coins que o plano credita (null = deriva)
+    coins_override: Optional[Decimal] = Field(default=None, gt=0)
+    # override de numeros da sorte (so vale com a trava da VIACAP ligada)
+    numeros_sorte_override: Optional[int] = Field(default=None, ge=0)
 
 
 class AtualizarPlanoRequest(BaseModel):
@@ -72,6 +82,9 @@ class AtualizarPlanoRequest(BaseModel):
     metodos_pagamento: Optional[List[MetodoPagamento]] = Field(default=None, min_length=1)
     periodicidade: Optional[Periodicidade] = None
     vantagens: Optional[List[str]] = None
+    # overrides: enviar null LIMPA (volta a derivar); ausente = mantem
+    coins_override: Optional[Decimal] = Field(default=None, gt=0)
+    numeros_sorte_override: Optional[int] = Field(default=None, ge=0)
 
 
 class RegraAplicada(BaseModel):

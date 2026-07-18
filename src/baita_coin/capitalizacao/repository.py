@@ -36,16 +36,20 @@ def insert_plano(
     metodos_pagamento: Optional[list] = None,
     periodicidade: str = "unica",
     vantagens: Optional[list] = None,
+    coins_override=None,
+    numeros_sorte_override=None,
 ) -> Row:
     return conn.execute(
         text(
             """
             INSERT INTO planos
                 (plano_id, nome, quantidade_pacotes, descricao, destaque, ordem,
-                 metodos_pagamento, periodicidade, vantagens)
+                 metodos_pagamento, periodicidade, vantagens,
+                 coins_override, numeros_sorte_override)
             VALUES
                 (:plano_id, :nome, :quantidade_pacotes, :descricao, :destaque, :ordem,
-                 CAST(:metodos_pagamento AS jsonb), :periodicidade, CAST(:vantagens AS jsonb))
+                 CAST(:metodos_pagamento AS jsonb), :periodicidade, CAST(:vantagens AS jsonb),
+                 :coins_override, :numeros_sorte_override)
             RETURNING *
             """
         ),
@@ -59,6 +63,8 @@ def insert_plano(
             "metodos_pagamento": json.dumps(metodos_pagamento or ["pix"]),
             "periodicidade": periodicidade,
             "vantagens": json.dumps(vantagens or []),
+            "coins_override": coins_override,
+            "numeros_sorte_override": numeros_sorte_override,
         },
     ).first()
 
@@ -75,7 +81,14 @@ def atualizar_plano(
     metodos_pagamento: Optional[list] = None,
     periodicidade: Optional[str] = None,
     vantagens: Optional[list] = None,
+    coins_override=None,
+    numeros_sorte_override=None,
+    set_coins_override: bool = False,
+    set_numeros_override: bool = False,
 ) -> Row:
+    # Overrides usam CASE (nao COALESCE): assim da pra LIMPAR (mandar null pra
+    # voltar a derivar), coisa que COALESCE nao permite. `set_X` diz se o
+    # campo foi enviado no PATCH.
     return conn.execute(
         text(
             """
@@ -88,7 +101,10 @@ def atualizar_plano(
                 status = COALESCE(:status, status),
                 metodos_pagamento = COALESCE(CAST(:metodos_pagamento AS jsonb), metodos_pagamento),
                 periodicidade = COALESCE(:periodicidade, periodicidade),
-                vantagens = COALESCE(CAST(:vantagens AS jsonb), vantagens)
+                vantagens = COALESCE(CAST(:vantagens AS jsonb), vantagens),
+                coins_override = CASE WHEN :set_coins THEN :coins_override ELSE coins_override END,
+                numeros_sorte_override = CASE WHEN :set_numeros THEN :numeros_sorte_override
+                                              ELSE numeros_sorte_override END
             WHERE plano_id = :plano_id
             RETURNING *
             """
@@ -104,6 +120,10 @@ def atualizar_plano(
             "metodos_pagamento": json.dumps(metodos_pagamento) if metodos_pagamento is not None else None,
             "periodicidade": periodicidade,
             "vantagens": json.dumps(vantagens) if vantagens is not None else None,
+            "coins_override": coins_override,
+            "numeros_sorte_override": numeros_sorte_override,
+            "set_coins": set_coins_override,
+            "set_numeros": set_numeros_override,
         },
     ).first()
 
@@ -245,14 +265,15 @@ def insert_compra(
     quantidade_pacotes: int,
     valor_reais: Decimal,
     idempotency_key: str,
+    plano_id: Optional[UUID] = None,
 ) -> Row:
     return conn.execute(
         text(
             """
             INSERT INTO compras_capitalizacao
-                (compra_id, account_id, quantidade_pacotes, valor_reais, idempotency_key)
+                (compra_id, account_id, quantidade_pacotes, valor_reais, idempotency_key, plano_id)
             VALUES
-                (:compra_id, :account_id, :quantidade_pacotes, :valor_reais, :idempotency_key)
+                (:compra_id, :account_id, :quantidade_pacotes, :valor_reais, :idempotency_key, :plano_id)
             RETURNING *
             """
         ),
@@ -262,6 +283,7 @@ def insert_compra(
             "quantidade_pacotes": quantidade_pacotes,
             "valor_reais": valor_reais,
             "idempotency_key": idempotency_key,
+            "plano_id": str(plano_id) if plano_id else None,
         },
     ).first()
 

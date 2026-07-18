@@ -196,10 +196,11 @@ def test_coins_do_plano_seguem_a_taxa_da_mecanica(client):
         "/v1/admin/planos",
         json={"nome": "Plano Taxa", "quantidade_pacotes": 2, "ordem": 81},
     ).json()
-    # R$40 x 1.5 = 60 coins → 3 números da sorte
+    # R$40 x 1.5 = 60 coins; números seguem o VALOR (R$20 = 1 título, SUSEP),
+    # NÃO os coins — R$40 = 2 títulos = 2 números (coins não inflam títulos)
     assert criado["valor_reais"] == "40.00"
     assert criado["coins"] == "60.00"
-    assert criado["numeros_sorte"] == 3
+    assert criado["numeros_sorte"] == 2
 
     # e o que o plano promete é o que a compra credita de verdade
     account = client.post("/v1/wallet/contas", json={"cpf": "70700700700"}).json()
@@ -222,3 +223,109 @@ def test_coins_do_plano_seguem_a_taxa_da_mecanica(client):
     )
     saldo = client.get(f"/v1/wallet/{account['account_id']}/saldo").json()
     assert saldo["saldo_coins"] == criado["coins"]  # 60.00 — plano == creditado
+
+
+def _comprar_plano(client, account_id, plano_id, pacotes, valor, prefixo):
+    compra = client.post(
+        "/v1/capitalizacao/compras",
+        json={
+            "account_id": str(account_id), "quantidade_pacotes": pacotes,
+            "plano_id": plano_id,
+            "metodo_pagamento": {"gateway": "mock", "metodo": "pix"},
+            "idempotency_key": f"{prefixo}_c",
+        },
+    ).json()
+    client.post(
+        "/v1/internal/webhooks/pagamento",
+        json={
+            "gateway": "mock", "gateway_transaction_id": f"tx_{prefixo}",
+            "compra_id": compra["compra_id"], "status": "aprovado",
+            "valor_confirmado": valor, "idempotency_key": f"{prefixo}_wh",
+        },
+    )
+
+
+def test_override_de_coins_do_plano_vale_no_credito(client, criar_conta_ativa):
+    # plano de 1 pacote (R$20) que dá 100 coins de bônus (override)
+    plano = client.post(
+        "/v1/admin/planos",
+        json={"nome": "Plano Bônus", "quantidade_pacotes": 1, "coins_override": "100.00", "ordem": 90},
+    ).json()
+    assert plano["coins"] == "100.00"
+    assert plano["coins_override"] == "100.00"
+    # números seguem R$20 = 1 título (SUSEP), NÃO inflam com o override de coins
+    assert plano["numeros_sorte"] == 1
+
+    account_id = criar_conta_ativa()
+    _comprar_plano(client, account_id, plano["plano_id"], 1, "20.00", "ovr")
+    saldo = client.get(f"/v1/wallet/{account_id}/saldo").json()
+    assert saldo["saldo_coins"] == "100.00"  # creditou o override, não os 20 da taxa
+    numeros = client.get(f"/v1/wallet/{account_id}/numeros-sorte").json()
+    assert numeros["total"] == 1  # 1 número, não 5 (100//20) — título travado no valor
+
+
+def test_override_de_numeros_e_ignorado_sem_a_trava_da_viacap(client, criar_conta_ativa):
+    # plano tenta dar 5 números num pacote de R$20 — sem a trava, backend ignora
+    plano = client.post(
+        "/v1/admin/planos",
+        json={"nome": "Plano N", "quantidade_pacotes": 1, "numeros_sorte_override": 5, "ordem": 91},
+    ).json()
+    # override guardado, mas efetivo continua 1 (R$20 = 1 título)
+    assert plano["numeros_sorte_override"] == 5
+    assert plano["numeros_sorte"] == 1
+
+    account_id = criar_conta_ativa()
+    _comprar_plano(client, account_id, plano["plano_id"], 1, "20.00", "novr")
+    numeros = client.get(f"/v1/wallet/{account_id}/numeros-sorte").json()
+    assert numeros["total"] == 1  # ignorou o override de números (trava off)
+
+
+def test_override_de_numeros_vale_com_a_trava_ligada(client, criar_conta_ativa, monkeypatch):
+    from baita_coin.config import settings
+    monkeypatch.setattr(settings, "planos_numeros_override_habilitado", True)
+
+    plano = client.post(
+        "/v1/admin/planos",
+        json={"nome": "Plano N2", "quantidade_pacotes": 1, "numeros_sorte_override": 3, "ordem": 92},
+    ).json()
+    assert plano["numeros_sorte"] == 3  # agora a trava está ligada
+
+    account_id = criar_conta_ativa()
+    _comprar_plano(client, account_id, plano["plano_id"], 1, "20.00", "novr2")
+    numeros = client.get(f"/v1/wallet/{account_id}/numeros-sorte").json()
+    assert numeros["total"] == 3
+
+
+def test_limpar_override_volta_a_derivar(client):
+    plano = client.post(
+        "/v1/admin/planos",
+        json={"nome": "Plano Limpar", "quantidade_pacotes": 2, "coins_override": "500.00", "ordem": 93},
+    ).json()
+    assert plano["coins"] == "500.00"
+    # enviar null limpa o override → volta a derivar (2 pacotes = R$40 = 40 coins)
+    limpo = client.patch(f"/v1/admin/planos/{plano['plano_id']}", json={"coins_override": None}).json()
+    assert limpo["coins_override"] is None
+    assert limpo["coins"] == "40.00"
+
+
+def test_compra_sem_plano_continua_derivando(client, criar_conta_ativa):
+    # compra avulsa (sem plano_id) — comportamento antigo intacto
+    account_id = criar_conta_ativa()
+    compra = client.post(
+        "/v1/capitalizacao/compras",
+        json={
+            "account_id": str(account_id), "quantidade_pacotes": 2,
+            "metodo_pagamento": {"gateway": "mock", "metodo": "pix"},
+            "idempotency_key": "avulsa_c",
+        },
+    ).json()
+    client.post(
+        "/v1/internal/webhooks/pagamento",
+        json={
+            "gateway": "mock", "gateway_transaction_id": "tx_av",
+            "compra_id": compra["compra_id"], "status": "aprovado",
+            "valor_confirmado": "40.00", "idempotency_key": "avulsa_wh",
+        },
+    )
+    saldo = client.get(f"/v1/wallet/{account_id}/saldo").json()
+    assert saldo["saldo_coins"] == "40.00"
